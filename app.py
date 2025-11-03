@@ -685,7 +685,7 @@ with left:
         st.info("No reference curve available for the selected seasons.")
 
     st.subheader("Actual vs projected cumulative tickets (historical vs this year)")
-    
+
     # 1) Historical cumulative tickets (absolute), reference seasons only
     hist_abs = daily[
         daily["season"].isin(seasons_ref)
@@ -710,7 +710,11 @@ with left:
     cur_actual_line = alt.Chart(this_abs_actual).mark_line(size=3).encode(
         x="days_to_close:Q",
         y="cum_qty:Q",
-        color=alt.value("black"),
+        color=alt.Color(
+            "season:N",
+            scale=alt.Scale(domain=[this_season], range=["navy"]),
+            legend=alt.Legend(title="This season"),
+        ),
         tooltip=["city", "season", "sale_date", "cum_qty"],
     )
     
@@ -725,7 +729,11 @@ with left:
     cur_proj_line = alt.Chart(this_abs_proj).mark_line(strokeDash=[4, 2], size=2).encode(
         x="days_to_close:Q",
         y="proj_cum_qty:Q",
-        color=alt.value("black"),
+        color=alt.Color(
+            "season:N",
+            scale=alt.Scale(domain=[this_season], range=["navy"]),
+            legend=alt.Legend(title="This season"),
+        ),
         tooltip=["city", "season", "sale_date", "proj_cum_qty"],
     )
     
@@ -738,11 +746,10 @@ with left:
         layers.append(cur_proj_line)
     
     if layers:
-        chart = alt.layer(*layers).properties(height=300)
+        chart = alt.layer(*layers).resolve_scale(color="independent").properties(height=300)
         st.altair_chart(chart, use_container_width=True)
     else:
         st.info("No data available yet for historicals and projections.")
-
 
     st.subheader("Normalized per-show cumulative (historical vs this year)")
     hist_norm = ref_daily.dropna(subset=["days_to_close","per_show_cum_qty"])
