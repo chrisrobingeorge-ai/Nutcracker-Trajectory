@@ -327,48 +327,60 @@ with st.sidebar:
         st.error("`data/` folder not found at repo root. Create it and add CSVs.")
         st.stop()
 
-    hist_candidates = []
-    if HIST_FIXED.exists(): hist_candidates.append(HIST_FIXED)
-    hist_candidates += sorted(DATA_DIR.glob(HIST_PATTERN))
-    this_candidates = []
-    if THIS_FIXED.exists(): this_candidates.append(THIS_FIXED)
-    this_candidates += sorted(DATA_DIR.glob(THIS_PATTERN))
+    # Gather candidates
+    hist_fixed = [HIST_FIXED] if HIST_FIXED.exists() else []
+    hist_glob  = sorted(DATA_DIR.glob(HIST_PATTERN))
+    this_fixed = [THIS_FIXED] if THIS_FIXED.exists() else []
+    this_glob  = sorted(DATA_DIR.glob(THIS_PATTERN))
 
-    if not hist_candidates:
+    if not (hist_fixed or hist_glob):
         st.error("No historical CSVs found. Add `historical.csv` or `historical_*.csv` in `data/`.")
         st.stop()
-    if not this_candidates:
+    if not (this_fixed or this_glob):
         st.error("No this-season CSVs found. Add `this_year.csv` or `this_year_*.csv` in `data/`.")
         st.stop()
 
-    hist_paths = {p.name: p for p in hist_candidates}
-    this_paths = {p.name: p for p in this_candidates}
+    # Toggle: merge all historical_* or pick one
+    merge_all_hist = st.checkbox("Merge all `historical_*.csv` files", value=True)
 
-    sel_hist = st.selectbox("Historical CSV", options=list(hist_paths.keys()), index=len(hist_paths)-1)
-    sel_this = st.selectbox("This-year CSV", options=list(this_paths.keys()), index=len(this_paths)-1)
+    if merge_all_hist and hist_glob:
+        st.write(f"Found {len(hist_glob)} historical files to merge.")
+        sel_hist_list = [p for p in hist_glob]  # use all matches
+    else:
+        # fall back to single-file selection (fixed file + any matches)
+        hist_candidates = hist_fixed + hist_glob
+        names = [p.name for p in hist_candidates]
+        sel_name = st.selectbox("Historical CSV (single file)", options=names, index=len(names)-1)
+        sel_hist_list = [hist_candidates[names.index(sel_name)]]
 
-    default_city_mode = st.selectbox("City view", ["Combined", "By City"], index=0)
+    # Current year: pick one file (usually just one)
+    this_candidates = this_fixed + this_glob
+    this_names = [p.name for p in this_candidates]
+    sel_this_name = st.selectbox("This-year CSV", options=this_names, index=len(this_names)-1)
+    sel_this_path = this_candidates[this_names.index(sel_this_name)]
+
+    city_mode = st.selectbox("City view", ["Combined", "By City"], index=0)
     show_revenue = st.checkbox("Include revenue curves when available", value=True)
 
 # Load CSVs from disk
 try:
-    hist_df = load_and_standardize_from_path(hist_paths[sel_hist])
-    this_df = load_and_standardize_from_path(this_paths[sel_this])
+    # merge all selected historical files
+    hist_parts = [load_and_standardize_from_path(p) for p in sel_hist_list]
+    hist_df = pd.concat(hist_parts, ignore_index=True)
+    this_df = load_and_standardize_from_path(sel_this_path)
 except Exception as e:
     st.error(f"Failed to read data files: {e}")
     st.stop()
 
-# Determine the current season label
+# Determine the current season label (this_year must contain exactly one season)
 this_season_values = sorted(this_df["season"].unique().tolist())
 if len(this_season_values) != 1:
     st.warning("Your this-season file should contain exactly one season value. Using the first found.")
 this_season = this_season_values[0]
 
-# Combine data and compute references
-all_df = pd.concat([hist_df, this_df], ignore_index=True)
-
 # Optional city collapsing
-if default_city_mode == "Combined":
+all_df = pd.concat([hist_df, this_df], ignore_index=True)
+if city_mode == "Combined":
     all_df["city"] = "Combined"
 
 # Core calendar + cumulative metrics
