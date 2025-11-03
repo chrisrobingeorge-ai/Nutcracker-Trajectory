@@ -602,88 +602,21 @@ daily_extended["days_to_close"] = (
     daily_extended["sale_date"].dt.normalize() - daily_extended["closing_date"]
 ).dt.days
 
-# 🔎 DEBUG — sanity checks
-dbg = daily_extended[daily_extended["season"] == this_season].copy()
-
-# Show last 5 rows per city (after extension)
-dbg_tail = (
-    dbg.sort_values(["city", "sale_date"])
-       .groupby("city", as_index=False)
-       .tail(5)
-)
-
-# Max DTC should be 0 for every city after extension
-last_dtc = dbg.groupby("city")["days_to_close"].max().sort_index().to_dict()
-st.caption("🔎 After extension, max days_to_close per city (should be 0)")
-st.json(last_dtc)
-
-# Any missing closing_date? (would block extension)
-missing_close = (
-    dbg[dbg["closing_date"].isna()][["season","city"]]
-    .drop_duplicates()
-    .sort_values(["season","city"])
-)
-if not missing_close.empty:
-    st.error("⚠️ Missing closing_date for these (season, city) pairs — extension cannot run:")
-    st.dataframe(missing_close, use_container_width=True)
-
-# Peek at the tail rows to confirm we actually reached Dec 24 (days_to_close == 0)
-st.caption("🔎 Tail rows per city after extension")
-st.dataframe(dbg_tail[["season","city","sale_date","days_to_close","cum_qty"]], use_container_width=True)
-
-# Reference curve coverage: do we have shares all the way to 0?
-st.caption("🔎 Ref curve coverage (min→max days_to_close) per city")
-ref_span = (
-    ref_curve.groupby("city")["days_to_close"].agg(["min","max"]).reset_index()
-             .sort_values("city")
-)
-st.dataframe(ref_span, use_container_width=True)
-
-# Also helpful to ensure city labels align across frames
-st.caption("🔎 City labels present")
-st.write({
-    "daily_extended": sorted(daily_extended["city"].dropna().unique().tolist()),
-    "ref_curve":      sorted(ref_curve["city"].dropna().unique().tolist()),
-})
-
+# ----------------------------
+# Projection + plotting prep
+# ----------------------------
 # Project on the extended data
 proj_df, summary_df = project_this_year(daily_extended, this_season, ref_curve, run_meta)
 
-# Trim plotting window
-plot_ref  = ref_curve[ref_curve["days_to_close"] >= -window_days].copy()
-plot_proj = proj_df[proj_df["days_to_close"] >= -window_days].copy()
-plot_hist = ref_daily[ref_daily["days_to_close"] >= -window_days].copy()
-plot_this = this_daily[this_daily["days_to_close"] >= -window_days].copy()
-
-# Gate projections only for visualization (not for summary computation)
+# Optionally gate projections for display only (don't touch summary_df)
+plot_proj = proj_df.copy()
 if "mean_share" in plot_proj.columns:
     too_early = plot_proj["mean_share"].notna() & (plot_proj["mean_share"] < min_share_to_project)
     plot_proj.loc[too_early, ["proj_cum_qty", "proj_min_cum_qty", "proj_max_cum_qty"]] = np.nan
 
 # ----------------------------
-# Main layout
+# MAIN PAGE (chart + data table)
 # ----------------------------
-left, right = st.columns([2, 1])
-
-with left:
-    st.subheader("Reference share band (historical)")
-    if not ref_curve.empty:
-        band = alt.Chart(ref_curve).mark_area(opacity=0.2).encode(
-            x=alt.X("days_to_close:Q", title="Days to closing (Dec 24) — negative before closing"),
-            y="min_share:Q",
-            y2="max_share:Q",
-            tooltip=["city","days_to_close","min_share","max_share"],
-        )
-        mean_line = alt.Chart(ref_curve).mark_line(strokeDash=[4,2]).encode(
-            x="days_to_close:Q",
-            y=alt.Y("mean_share:Q", title="Cumulative share of final"),
-            color=alt.value("black"),
-            tooltip=["city","days_to_close","mean_share"],
-        )
-        st.altair_chart((band + mean_line).properties(height=240), use_container_width=True)
-    else:
-        st.info("No reference curve available for the selected seasons.")
-
 st.subheader("Actual vs projected cumulative tickets (historical vs this year)")
 
 # 1) Historical cumulative tickets (absolute), reference seasons only
@@ -719,18 +652,18 @@ cur_actual_line = alt.Chart(this_abs_actual).mark_line(size=3).encode(
     tooltip=["city", "season", "sale_date", "cum_qty"],
 )
 
-# 3) This year PROJECTION — from proj_df (only from last actual onward), NO legend
+# 3) This year PROJECTION — from plot_proj (only from last actual onward), NO legend
 last_actual_date = this_daily["sale_date"].max()
 dtc_today = this_daily.loc[
     this_daily["sale_date"] == last_actual_date, "days_to_close"
 ].iloc[0]
 
-this_abs_proj = proj_df[
-    (proj_df["season"] == this_season)
-    & proj_df["proj_cum_qty"].notna()
-    & proj_df["days_to_close"].notna()
-    & (proj_df["days_to_close"] >= dtc_today)
-    & (proj_df["days_to_close"] >= -window_days)
+this_abs_proj = plot_proj[
+    (plot_proj["season"] == this_season)
+    & plot_proj["proj_cum_qty"].notna()
+    & plot_proj["days_to_close"].notna()
+    & (plot_proj["days_to_close"] >= dtc_today)
+    & (plot_proj["days_to_close"] >= -window_days)
 ].copy()
 
 cur_proj_line = alt.Chart(this_abs_proj).mark_line(
@@ -755,94 +688,43 @@ if not this_abs_proj.empty:
 if layers:
     chart = (
         alt.layer(*layers)
-        .resolve_scale(color="independent")   # <<< key line
+        .resolve_scale(color="independent")  # keep hist + this-year legends separate
         .properties(height=300)
     )
     st.altair_chart(chart, use_container_width=True)
 else:
     st.info("No data available yet for historicals and projections.")
 
-    st.subheader("Normalized per-show cumulative (historical vs this year)")
-    hist_norm = ref_daily.dropna(subset=["days_to_close","per_show_cum_qty"])
-    this_norm = this_daily.dropna(subset=["days_to_close","per_show_cum_qty"])
-    if not hist_norm.empty or not this_norm.empty:
-        lines_hist = alt.Chart(hist_norm).mark_line(opacity=0.35).encode(
-            x=alt.X("days_to_close:Q", title="Days to closing (Dec 24)"),
-            y=alt.Y("per_show_cum_qty:Q", title="Cumulative tickets per show"),
-            color=alt.Color("season:N", title="Season"),
-            tooltip=["season","city","days_to_close","per_show_cum_qty"],
-        )
-        line_this = alt.Chart(this_norm).mark_line(size=3).encode(
-            x="days_to_close:Q",
-            y="per_show_cum_qty:Q",
-            color=alt.Color("city:N", title="City"),
-            tooltip=["city","season","days_to_close","per_show_cum_qty"],
-        )
-        st.altair_chart((lines_hist + line_this).properties(height=260), use_container_width=True)
-    else:
-        st.info("Per-show normalization requires `num_shows` to be known. Otherwise this chart will be empty.")
+# ----------------------------
+# Data table + download (this season by day)
+# ----------------------------
+st.subheader("Projection by day (this season)")
 
-    if show_revenue and ("cum_rev" in daily.columns) and daily["cum_rev"].notna().any():
-        st.subheader("Revenue trajectory (with projection when possible)")
-    
-        # 1) Historical seasons (not this year) — from the original (non-extended) daily
-        rev_hist = daily[(daily["season"] != this_season) & daily["cum_rev"].notna()]
-        hist_chart = alt.Chart(rev_hist).mark_line(opacity=0.4).encode(
-            x=alt.X("days_to_close:Q", title="Days to closing (Dec 24)"),
-            y=alt.Y("cum_rev:Q", title="Cumulative revenue"),
-            color=alt.Color("season:N", title="Season"),
-            tooltip=["season","city","sale_date","cum_rev"],
-            detail="city:N",
-        )
-    
-        # 2) Current season actuals — from the non-extended frame (stops at last real sale)
-        cur_actual = this_daily.dropna(subset=["days_to_close","cum_rev"])
-        cur_line = alt.Chart(cur_actual).mark_line(size=3).encode(
-            x="days_to_close:Q",
-            y="cum_rev:Q",
-            color=alt.Color("city:N", title="City (current)"),
-            tooltip=["city","sale_date","cum_rev"],
-        )
-    
-        # 3) Current season projection — from the extended/projection frame
-        cur_proj = proj_df[(proj_df["season"] == this_season) & proj_df["proj_cum_rev"].notna()]
-        cur_proj_line = alt.Chart(cur_proj).mark_line(strokeDash=[4,2]).encode(
-            x="days_to_close:Q",
-            y="proj_cum_rev:Q",
-            color=alt.Color("city:N", title="City (current)"),
-            tooltip=["city","sale_date","proj_cum_rev"],
-        )
-    
-        st.altair_chart((hist_chart + cur_line + cur_proj_line).properties(height=260),
-                        use_container_width=True)
+table_df = plot_proj[plot_proj["season"] == this_season].copy()
+# Keep a tidy column order; adjust as you like
+cols_order = [
+    "season",
+    "city",
+    "sale_date",
+    "days_to_close",
+    "cum_qty",
+    "proj_cum_qty",
+    "proj_min_cum_qty",
+    "proj_max_cum_qty",
+    "cum_rev",
+    "proj_cum_rev",
+]
+cols_order = [c for c in cols_order if c in table_df.columns]
+table_df = table_df[cols_order].sort_values(["city", "sale_date"])
 
+st.dataframe(table_df, use_container_width=True, hide_index=True)
 
-with right:
-    st.subheader("Summary & projection")
-    if not summary_df.empty:
-        st.dataframe(
-            summary_df.assign(
-                projected_final_qty=summary_df["projected_final_qty"].round(0),
-                projected_pct_capacity=(summary_df["projected_pct_capacity"] * 100).round(1),
-                projected_final_revenue=summary_df["projected_final_revenue"].round(0)
-            ),
-            use_container_width=True,
-            hide_index=True,
-        )
-        st.download_button(
-            label="Download projection by day (CSV)",
-            data=proj_df.to_csv(index=False).encode("utf-8"),
-            file_name=f"nutcracker_projection_by_day_{this_season}.csv",
-            mime="text/csv",
-        )
-        st.download_button(
-            label="Download summary (CSV)",
-            data=summary_df.to_csv(index=False).encode("utf-8"),
-            file_name=f"nutcracker_projection_summary_{this_season}.csv",
-            mime="text/csv",
-        )
-    else:
-        st.info("No summary available yet.")
+st.download_button(
+    label="Download projection by day (CSV)",
+    data=table_df.to_csv(index=False).encode("utf-8"),
+    file_name=f"nutcracker_projection_by_day_{this_season}.csv",
+    mime="text/csv",
+)
 
 # ----------------------------
 # Footer notes
