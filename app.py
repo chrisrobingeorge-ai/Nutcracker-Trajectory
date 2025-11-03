@@ -550,6 +550,57 @@ if len(this_season_values) != 1:
     st.warning("Your this-season file should contain exactly one season value. Using the first found.")
 this_season = this_season_values[0]
 
+# ----------------------------
+# Optional: latest sales since CSV export
+# ----------------------------
+last_file_date = this_df["sale_date"].max().date()
+
+with st.sidebar:
+    st.header("3) Latest sales (optional)")
+    latest_sales_date = st.date_input(
+        "Latest sales as of date",
+        value=last_file_date,
+        help="If you've booked more tickets since the CSV export, use this to update projections.",
+    )
+    latest_tickets = st.number_input(
+        "Tickets sold since CSV export",
+        min_value=0,
+        step=1,
+    )
+    latest_revenue = st.number_input(
+        "Revenue since CSV export",
+        min_value=0.0,
+        step=100.0,
+        format="%.2f",
+    )
+
+# If the team entered additional sales, treat them as a new "as of" row
+if (latest_tickets > 0) or (latest_revenue > 0):
+    extra_date_ts = pd.to_datetime(latest_sales_date)
+
+    # Warn if the date isn't actually after the CSV
+    if extra_date_ts <= this_df["sale_date"].max():
+        st.warning(
+            "Latest sales date is on or before the last date in the CSV; "
+            "treating these as extra sales on that same day."
+        )
+
+    new_row = {
+        "season": this_season,
+        "sale_date": extra_date_ts,
+        "qty": int(latest_tickets),
+    }
+
+    if "revenue" in this_df.columns:
+        new_row["revenue"] = float(latest_revenue)
+
+    if "city" in this_df.columns:
+        # Use the most common city label in this_year data; it will be overwritten
+        # to 'Combined' later if you're in Combined mode.
+        new_row["city"] = this_df["city"].mode()[0]
+
+    this_df = pd.concat([this_df, pd.DataFrame([new_row])], ignore_index=True)
+
 # Optional city collapsing
 all_df = pd.concat([hist_df, this_df], ignore_index=True)
 if city_mode == "Combined":
