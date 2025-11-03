@@ -6,39 +6,36 @@
 # - Project final sales using historical cumulative share curves
 # - Handle Calgary vs Edmonton (or combined) views
 # - **Reads CSVs from a local `data/` folder in the repo** (no file uploads)
-# - **Supports your 5-column schema**: Date, City, Source, Tickets Sold, Revenue
-# - **Optional `data/runs.csv`** to assign season/opening/num_shows when missing
+# - **Timeline anchored to closing day (Dec 24) each year**
 #
 # Data expectations (CSV)
 # -----------------------
-# Place CSVs in `data/` at the repo root. The app auto-discovers them.
-# You can use fixed names:
+# Place CSVs in `data/` at the repo root. The app will auto-discover them.
+# You can either use fixed names:
 #   - `data/historical.csv`      (multi-year history)
 #   - `data/this_year.csv`       (this-season to date; exactly one season)
-# or patterns (select in the sidebar):
+# or use patterns (the app picks the most recent by modified time):
 #   - `data/historical_*.csv`
 #   - `data/this_year_*.csv`
 #
-# Supported schemas (case-insensitive headers):
-# A) Rich schema (no runs.csv required):
-#   - season / year
-#   - order_date / sale_date / date
-#   - performance_date
-#   - qty / tickets_sold / tickets
-#   - city
-# Optional: performance_id, capacity / seats / total_capacity, revenue / gross, source / platform / channel
-#
-# B) Lean 5-column schema (requires `data/runs.csv`):
-#   - Date, City, Source, Tickets Sold, Revenue
-#   -> Add `data/runs.csv` with columns: season, city, opening_date, num_shows, total_capacity (optional)
-#   The app will assign season + opening_date to each sale by matching City and the window
-#   [opening_date-365d, Dec 24 (opening year)].
+# Required columns (case-insensitive, flexible names allowed):
+#   - season / year             : e.g., 2019, 2022-23, etc. (string or int)
+#   - order_date / sale_date    : date of ticket sale (YYYY-MM-DD)
+#   - performance_date          : date of first performance (YYYY-MM-DD) for the Nutcracker run in that city
+#   - qty / tickets_sold        : integer quantity sold for that day
+# Optional columns:
+#   - city                      : 'Calgary' / 'Edmonton' (or any label)
+#   - performance_id            : identifier for a performance/run; if missing, unique performance_date is used
+#   - capacity / seats          : capacity (per perf or total run). If absent, per-show normalization is used.
+#   - revenue                   : enables revenue curves
+#   - channel                   : optional segmentation
 #
 # -------------------------------------------------
 
 from __future__ import annotations
+import io
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List, Dict, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -68,20 +65,18 @@ HIST_FIXED = DATA_DIR / "historical.csv"
 THIS_FIXED = DATA_DIR / "this_year.csv"
 HIST_PATTERN = "historical_*.csv"
 THIS_PATTERN = "this_year_*.csv"
-RUNS_FILE = DATA_DIR / "runs.csv"
 
 # ----------------------------
-# Header candidates / helpers
+# Helpers
 # ----------------------------
-DATE_COL_CANDIDATES = ["order_date", "sale_date", "sales_date", "transaction_date", "date"]
+DATE_COL_CANDIDATES = ["order_date", "sale_date", "sales_date", "transaction_date"]
 PERF_DATE_CANDIDATES = ["performance_date", "perf_date", "show_date"]
-QTY_COL_CANDIDATES = ["qty", "tickets_sold", "units", "tickets", "tickets sold"]
+QTY_COL_CANDIDATES = ["qty", "tickets_sold", "units", "tickets"]
 SEASON_COL_CANDIDATES = ["season", "year"]
 CITY_COL_CANDIDATES = ["city", "market"]
 PERF_ID_CANDIDATES = ["performance_id", "perf_id", "show_id"]
 CAPACITY_COL_CANDIDATES = ["capacity", "seats", "house_capacity", "total_capacity"]
 REVENUE_COL_CANDIDATES = ["revenue", "gross", "amount"]
-SOURCE_COL_CANDIDATES  = ["source", "platform", "channel", "system"]
 
 
 def _find_col(cols: List[str], candidates: List[str]) -> Optional[str]:
@@ -97,110 +92,71 @@ def _coerce_dates(df: pd.DataFrame, col: str) -> pd.Series:
 
 
 @st.cache_data(show_spinner=False)
-def load_csv(path: Path) -> pd.DataFrame:
+def load_and_standardize_from_path(path: Path) -> pd.DataFrame:
     if not path.exists():
         raise FileNotFoundError(f"File not found: {path}")
-    return pd.read_csv(path)
-
-
-def _standardize_sales(df: pd.DataFrame, src_name: str) -> pd.DataFrame:
-    """Map flexible headers onto canonical names. Does not inject season/perf date if missing."""
+    df = pd.read_csv(path)
     lower = {c.lower(): c for c in df.columns}
+
     season_col = _find_col(list(lower.keys()), SEASON_COL_CANDIDATES)
-    date_col   = _find_col(list(lower.keys()), DATE_COL_CANDIDATES)
-    perf_col   = _find_col(list(lower.keys()), PERF_DATE_CANDIDATES)
-    qty_col    = _find_col(list(lower.keys()), QTY_COL_CANDIDATES)
-    city_col   = _find_col(list(lower.keys()), CITY_COL_CANDIDATES)
-    perf_id    = _find_col(list(lower.keys()), PERF_ID_CANDIDATES)
-    cap_col    = _find_col(list(lower.keys()), CAPACITY_COL_CANDIDATES)
-    rev_col    = _find_col(list(lower.keys()), REVENUE_COL_CANDIDATES)
-    src_col    = _find_col(list(lower.keys()), SOURCE_COL_CANDIDATES)
+    date_col = _find_col(list(lower.keys()), DATE_COL_CANDIDATES)
+    perf_col = _find_col(list(lower.keys()), PERF_DATE_CANDIDATES)
+    qty_col = _find_col(list(lower.keys()), QTY_COL_CANDIDATES)
+    city_col = _find_col(list(lower.keys()), CITY_COL_CANDIDATES)
+    perf_id_col = _find_col(list(lower.keys()), PERF_ID_CANDIDATES)
+    cap_col = _find_col(list(lower.keys()), CAPACITY_COL_CANDIDATES)
+    rev_col = _find_col(list(lower.keys()), REVENUE_COL_CANDIDATES)
+    src_col = _find_col(list(lower.keys()), SOURCE_COL_CANDIDATES)
+    # ...
+    if src_col: df = df.rename(columns={src_col: "source"})
+    # ...
+    if "source" in df.columns:
+        df["source"] = df["source"].fillna("Unknown").replace({"": "Unknown"})
+        required = [season_col, date_col, perf_col, qty_col]
+        if any(c is None for c in required):
+            missing = [name for cands, name in [
+                (SEASON_COL_CANDIDATES, "season/year"),
+                (DATE_COL_CANDIDATES, "order_date/sale_date"),
+                (PERF_DATE_CANDIDATES, "performance_date"),
+                (QTY_COL_CANDIDATES, "qty/tickets_sold"),
+            ] if _find_col(list(lower.keys()), cands) is None]
+            raise ValueError(
+                f"{path.name}: Missing required column(s): " + ", ".join(missing)
+            )
 
-    # require at least date + qty
-    missing_base = []
-    if date_col is None: missing_base.append("Date")
-    if qty_col  is None: missing_base.append("Tickets Sold")
-    if missing_base:
-        raise ValueError(f"{src_name}: Missing required column(s): {', '.join(missing_base)}")
+    # Normalize core columns
+    df = df.rename(columns={
+        season_col: "season",
+        date_col: "sale_date",
+        perf_col: "performance_date",
+        qty_col: "qty",
+    })
+    if city_col: df = df.rename(columns={city_col: "city"})
+    if perf_id_col: df = df.rename(columns={perf_id_col: "performance_id"})
+    if cap_col: df = df.rename(columns={cap_col: "capacity"})
+    if rev_col: df = df.rename(columns={rev_col: "revenue"})
 
-    # rename what we have
-    ren = {date_col: "sale_date", qty_col: "qty"}
-    if city_col: ren[city_col] = "city"
-    if rev_col:  ren[rev_col]  = "revenue"
-    if cap_col:  ren[cap_col]  = "capacity"
-    if src_col:  ren[src_col]  = "source"
-    if perf_col: ren[perf_col] = "performance_date"
-    if season_col: ren[season_col] = "season"
-    if perf_id: ren[perf_id] = "performance_id"
-    df = df.rename(columns=ren)
-
-    # types
+    # Types
     df["sale_date"] = _coerce_dates(df, "sale_date")
+    df["performance_date"] = _coerce_dates(df, "performance_date")
     df["qty"] = pd.to_numeric(df["qty"], errors="coerce").fillna(0).astype(int)
     if "revenue" in df.columns:
         df["revenue"] = pd.to_numeric(df["revenue"], errors="coerce").fillna(0.0)
     if "capacity" in df.columns:
         df["capacity"] = pd.to_numeric(df["capacity"], errors="coerce").fillna(np.nan)
 
-    # defaults
+    # Clean season labels as strings
+    df["season"] = df["season"].astype(str).str.strip()
+
+    # Fallback performance_id
+    if "performance_id" not in df.columns:
+        df["performance_id"] = df["season"].astype(str) + "_" + df["performance_date"].dt.strftime("%Y-%m-%d")
+
+    # If no city, mark as Combined
     if "city" not in df.columns:
         df["city"] = "Combined"
-    if "source" in df.columns:
-        df["source"] = df["source"].fillna("Unknown").replace({"": "Unknown"})
 
     return df
-
-
-def _load_runs_meta(path: Path) -> pd.DataFrame:
-    """runs.csv columns: season, city, opening_date, num_shows, total_capacity (optional)"""
-    runs = load_csv(path)
-    lc = {c.lower(): c for c in runs.columns}
-    req = {
-        "season": lc.get("season"),
-        "city": lc.get("city"),
-        "opening_date": lc.get("opening_date"),
-    }
-    if any(v is None for v in req.values()):
-        raise ValueError("runs.csv must include: season, city, opening_date")
-    runs = runs.rename(columns={req["season"]: "season", req["city"]: "city", req["opening_date"]: "opening_date"})
-    # optional
-    if "num_shows" in lc: runs = runs.rename(columns={lc["num_shows"]: "num_shows"})
-    if "total_capacity" in lc: runs = runs.rename(columns={lc["total_capacity"]: "total_capacity"})
-
-    runs["opening_date"] = pd.to_datetime(runs["opening_date"], errors="coerce").dt.tz_localize(None)
-    # closing date = Dec 24 of opening year
-    runs["closing_date"] = pd.to_datetime(dict(year=runs["opening_date"].dt.year, month=12, day=24))
-
-    # ensure city/type
-    runs["city"] = runs["city"].astype(str)
-    runs["season"] = runs["season"].astype(str).str.strip()
-    return runs
-
-
-def _assign_season_and_perf_from_runs(sales: pd.DataFrame, runs: pd.DataFrame) -> pd.DataFrame:
-    """For lean schema without season/performance_date, assign them using runs.csv by (city, window)."""
-    # Cartesian merge by city, then filter by window: sale_date in [opening_date-365, closing_date]
-    x = sales.merge(runs, on="city", how="left", suffixes=("", "_run"))
-    x["window_start"] = x["opening_date"] - pd.Timedelta(days=365)
-    mask = (x["sale_date"] >= x["window_start"]) & (x["sale_date"] <= x["closing_date"])
-    x = x[mask].copy()
-
-    # If multiple runs match (rare), pick the nearest opening_date in the future relative to sale_date, else the latest past
-    x["delta_open"] = (x["opening_date"] - x["sale_date"]).abs()
-    x = x.sort_values(["season", "city", "sale_date", "delta_open"]).drop_duplicates(subset=["city", "sale_date", "qty"], keep="first")
-
-    # Write back season & performance_date
-    sales2 = sales.copy()
-    sales2 = sales2.merge(x[["city", "sale_date", "season", "opening_date", "num_shows", "total_capacity", "closing_date"]],
-                          on=["city", "sale_date"], how="left")
-    # If we still lack matches, raise a friendly error
-    if sales2["season"].isna().any() or sales2["opening_date"].isna().any():
-        missing = sales2[sales2["season"].isna() | sales2["opening_date"].isna()][["city", "sale_date"]].head(10)
-        raise ValueError("Some sales rows could not be matched to a run in runs.csv. Example rows:\n" + missing.to_string(index=False))
-
-    # Set canonical names used elsewhere
-    sales2 = sales2.rename(columns={"opening_date": "performance_date"})
-    return sales2
 
 
 def aggregate_daily(df: pd.DataFrame) -> pd.DataFrame:
@@ -214,34 +170,28 @@ def aggregate_daily(df: pd.DataFrame) -> pd.DataFrame:
 
 def compute_calendar_refs(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
     perf_info = (
-        df.groupby(["season", "city"], dropna=False)
-          .agg(opening_date=("performance_date", "min"))
+        df.groupby(["season", "city", "performance_id"], dropna=False)
+          .agg(opening_date=("performance_date", "min"),
+               perf_capacity=("capacity", "max"))
           .reset_index()
     )
-    # bring capacities if present per-row (sum per run) and number of shows if provided
-    cap_info = (df.groupby(["season", "city"], dropna=False)["capacity"].max().rename("perf_capacity").reset_index() if "capacity" in df.columns else None)
+    open_by_sc = perf_info.groupby(["season", "city"], dropna=False).agg(
+        opening_date=("opening_date", "min"),
+        num_shows=("performance_id", "nunique"),
+        total_capacity=("perf_capacity", "sum")
+    ).reset_index()
 
-    open_by_sc = perf_info
-    if cap_info is not None:
-        open_by_sc = open_by_sc.merge(cap_info, on=["season", "city"], how="left")
-        open_by_sc = open_by_sc.rename(columns={"perf_capacity": "total_capacity"})
-
-    # If num_shows is present (from runs.csv assignment), keep it
-    if "num_shows" in df.columns:
-        ns = df.groupby(["season", "city"], dropna=False)["num_shows"].max().reset_index()
-        open_by_sc = open_by_sc.merge(ns, on=["season", "city"], how="left")
-
-    # If not, approximate num_shows as unique performance_date values (if the file encodes multiple run dates)
-    if "num_shows" not in open_by_sc.columns:
-        approx = df.groupby(["season", "city"], dropna=False)["performance_date"].nunique().rename("num_shows").reset_index()
-        open_by_sc = open_by_sc.merge(approx, on=["season", "city"], how="left")
-
-    # Closing date = Dec 24 of opening year
-    open_by_sc["closing_date"] = pd.to_datetime(dict(year=open_by_sc["opening_date"].dt.year, month=12, day=24))
+    # Closing date is Dec 24 of the opening year for that season+city
+    open_by_sc["closing_date"] = pd.to_datetime(dict(
+        year=open_by_sc["opening_date"].dt.year,
+        month=12,
+        day=24
+    ))
 
     daily = aggregate_daily(df).merge(open_by_sc, on=["season", "city"], how="left")
-    daily["days_out"] = (daily["sale_date"].dt.normalize() - daily["opening_date"]).dt.days
-    daily["days_to_close"] = (daily["closing_date"] - daily["sale_date"].dt.normalize()).dt.days * -1  # negative before Dec 24, 0 on Dec 24
+
+    # Days to closing (negative before Dec 24, zero on Dec 24)
+    daily["days_to_close"] = (daily["sale_date"].dt.normalize() - daily["closing_date"]).dt.days
 
     daily = daily.sort_values(["season", "city", "sale_date"]).reset_index(drop=True)
     daily["cum_qty"] = daily.groupby(["season", "city"], as_index=False)["qty"].cumsum()
@@ -250,4 +200,281 @@ def compute_calendar_refs(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]
     else:
         daily["cum_rev"] = np.nan
 
-    finals
+    finals = daily.groupby(["season", "city"], dropna=False).agg(
+        final_qty=("qty", "sum"),
+        final_rev=("revenue", "sum") if "revenue" in daily.columns else ("qty", "sum"),
+    ).reset_index()
+
+    out = daily.merge(finals, on=["season", "city"], how="left")
+
+    out["per_show_cum_qty"] = out["cum_qty"] / out["num_shows"].replace(0, np.nan)
+    out["share_of_final_qty"] = out["cum_qty"] / out["final_qty"].replace(0, np.nan)
+
+    if "total_capacity" in out.columns:
+        out["share_of_capacity"] = out["cum_qty"] / out["total_capacity"].replace(0, np.nan)
+    else:
+        out["share_of_capacity"] = np.nan
+
+    return out, open_by_sc
+
+
+def build_reference_curve(daily: pd.DataFrame, seasons_ref: List[str]) -> pd.DataFrame:
+    ref = daily[daily["season"].isin(seasons_ref)].copy()
+    needed = ["season", "city", "days_to_close", "share_of_final_qty", "per_show_cum_qty"]
+    missing = [c for c in needed if c not in ref.columns]
+    if missing:
+        raise ValueError(f"Missing columns for reference curve: {missing}")
+
+    agg = (
+        ref.groupby(["city", "days_to_close"], dropna=False)
+           .agg(mean_share=("share_of_final_qty", "mean"),
+                min_share=("share_of_final_qty", "min"),
+                max_share=("share_of_final_qty", "max"),
+                mean_per_show=("per_show_cum_qty", "mean"))
+           .reset_index()
+    )
+    return agg
+
+
+def project_this_year(
+    daily: pd.DataFrame,
+    this_season: str,
+    ref_curve: pd.DataFrame,
+    open_meta: pd.DataFrame,
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    cur = daily[daily["season"] == this_season].copy()
+    cur = cur.merge(open_meta, on=["season", "city"], how="left")
+
+    cur = cur.merge(ref_curve, on=["city", "days_to_close"], how="left")
+
+    proj_rows = []
+    for city, g in cur.groupby("city"):
+        g = g.sort_values("sale_date")
+        cum_qty_today = g["cum_qty"].iloc[-1]
+        cap_total = g["total_capacity"].iloc[-1] if "total_capacity" in g.columns else np.nan
+        ref_today_share = g["mean_share"].dropna().iloc[-1] if g["mean_share"].notna().any() else np.nan
+
+        proj_final_qty_shape = np.nan
+        if pd.notna(ref_today_share) and ref_today_share > 0:
+            proj_final_qty_shape = cum_qty_today / ref_today_share
+
+        proj_pct_capacity = np.nan
+        if pd.notna(cap_total) and cap_total > 0 and pd.notna(proj_final_qty_shape):
+            proj_pct_capacity = proj_final_qty_shape / cap_total
+
+        g["proj_cum_qty"] = g["mean_share"] * proj_final_qty_shape if pd.notna(proj_final_qty_shape) else np.nan
+        g["proj_min_cum_qty"] = g["min_share"] * proj_final_qty_shape if pd.notna(proj_final_qty_shape) else np.nan
+        g["proj_max_cum_qty"] = g["max_share"] * proj_final_qty_shape if pd.notna(proj_final_qty_shape) else np.nan
+
+        g["city"] = city
+        proj_rows.append(g)
+
+    proj = pd.concat(proj_rows, ignore_index=True) if proj_rows else cur
+
+    summaries = []
+    for city, g in proj.groupby("city"):
+        row = dict(
+            season=this_season,
+            city=city,
+            current_cum_qty=g["cum_qty"].iloc[-1] if len(g) else np.nan,
+            projected_final_qty=(g["proj_cum_qty"].iloc[-1] if g["proj_cum_qty"].notna().any() else np.nan),
+            projected_pct_capacity=(g["proj_cum_qty"].iloc[-1] / g["total_capacity"].iloc[-1]
+                                    if ("total_capacity" in g.columns and g["total_capacity"].iloc[-1] > 0 and g["proj_cum_qty"].notna().any()) else np.nan),
+            num_shows=g["num_shows"].iloc[-1] if "num_shows" in g.columns else np.nan,
+            total_capacity=g["total_capacity"].iloc[-1] if "total_capacity" in g.columns else np.nan,
+        )
+        summaries.append(row)
+    summary_df = pd.DataFrame(summaries)
+    return proj, summary_df
+
+# ----------------------------
+# Data discovery (no uploads)
+# ----------------------------
+with st.sidebar:
+    st.header("1) Data source: `data/` folder")
+    st.caption(str(DATA_DIR))
+
+    if not DATA_DIR.exists():
+        st.error("`data/` folder not found at repo root. Create it and add CSVs.")
+        st.stop()
+
+    hist_candidates = []
+    if HIST_FIXED.exists(): hist_candidates.append(HIST_FIXED)
+    hist_candidates += sorted(DATA_DIR.glob(HIST_PATTERN))
+    this_candidates = []
+    if THIS_FIXED.exists(): this_candidates.append(THIS_FIXED)
+    this_candidates += sorted(DATA_DIR.glob(THIS_PATTERN))
+
+    if not hist_candidates:
+        st.error("No historical CSVs found. Add `historical.csv` or `historical_*.csv` in `data/`.")
+        st.stop()
+    if not this_candidates:
+        st.error("No this-season CSVs found. Add `this_year.csv` or `this_year_*.csv` in `data/`.")
+        st.stop()
+
+    hist_paths = {p.name: p for p in hist_candidates}
+    this_paths = {p.name: p for p in this_candidates}
+
+    sel_hist = st.selectbox("Historical CSV", options=list(hist_paths.keys()), index=len(hist_paths)-1)
+    sel_this = st.selectbox("This-year CSV", options=list(this_paths.keys()), index=len(this_paths)-1)
+
+    default_city_mode = st.selectbox("City view", ["Combined", "By City"], index=0)
+    show_revenue = st.checkbox("Include revenue curves when available", value=True)
+
+# Load CSVs from disk
+try:
+    hist_df = load_and_standardize_from_path(hist_paths[sel_hist])
+    this_df = load_and_standardize_from_path(this_paths[sel_this])
+except Exception as e:
+    st.error(f"Failed to read data files: {e}")
+    st.stop()
+
+# Determine the current season label
+this_season_values = sorted(this_df["season"].unique().tolist())
+if len(this_season_values) != 1:
+    st.warning("Your this-season file should contain exactly one season value. Using the first found.")
+this_season = this_season_values[0]
+
+# Combine data and compute references
+all_df = pd.concat([hist_df, this_df], ignore_index=True)
+
+# Optional city collapsing
+if default_city_mode == "Combined":
+    all_df["city"] = "Combined"
+
+# Core calendar + cumulative metrics
+daily, open_meta = compute_calendar_refs(all_df)
+
+# Sidebar: choose reference seasons (exclude current)
+with st.sidebar:
+    seasons_all = sorted(daily["season"].unique().tolist())
+    ref_default = [s for s in seasons_all if s != this_season]
+    seasons_ref = st.multiselect("Reference seasons (exclude this year)", options=[s for s in seasons_all if s != this_season], default=ref_default)
+    if not seasons_ref:
+        st.warning("Select at least one reference season for projections.")
+
+# Separate frames for ref vs current
+ref_daily = daily[daily["season"].isin(seasons_ref)].copy()
+this_daily = daily[daily["season"] == this_season].copy()
+
+# Build reference curve and project
+try:
+    ref_curve = build_reference_curve(daily, seasons_ref) if seasons_ref else pd.DataFrame()
+except Exception as e:
+    st.error(f"Could not build reference curve: {e}")
+    st.stop()
+
+proj_df, summary_df = project_this_year(daily, this_season, ref_curve, open_meta)
+
+# ----------------------------
+# Main layout
+# ----------------------------
+left, right = st.columns([2, 1])
+
+with left:
+    st.subheader("Reference share band (historical)")
+    if not ref_curve.empty:
+        band = alt.Chart(ref_curve).mark_area(opacity=0.2).encode(
+            x=alt.X("days_to_close:Q", title="Days to closing (Dec 24) — negative before closing"),
+            y="min_share:Q",
+            y2="max_share:Q",
+            tooltip=["min_share", "max_share"],
+        )
+        mean_line = alt.Chart(ref_curve).mark_line(strokeDash=[4,2]).encode(
+            x="days_to_close:Q",
+            y=alt.Y("mean_share:Q", title="Cumulative share of final"),
+            tooltip=["mean_share"],
+        )
+        st.altair_chart((band + mean_line).properties(height=240), use_container_width=True)
+
+    st.subheader("Actual vs projected cumulative tickets")
+    abs_join = proj_df.dropna(subset=["days_to_close"]).copy()
+    act = alt.Chart(abs_join).mark_line().encode(
+        x=alt.X("days_to_close:Q", title="Days to closing (Dec 24)"),
+        y=alt.Y("cum_qty:Q", title="Cumulative tickets"),
+        color=alt.Color("city:N", title="City"),
+        tooltip=["city", "sale_date", "cum_qty", "num_shows"],
+    )
+    proj = alt.Chart(abs_join).mark_line(strokeDash=[4,2]).encode(
+        x="days_to_close:Q",
+        y="proj_cum_qty:Q",
+        color=alt.Color("city:N", title="City"),
+        tooltip=["city", "sale_date", "proj_cum_qty"],
+    )
+    st.altair_chart((act + proj).properties(height=300), use_container_width=True)
+
+    st.subheader("Normalized per-show cumulative (historical vs this year)")
+    hist_norm = ref_daily.dropna(subset=["days_to_close"]).copy()
+    lines_hist = alt.Chart(hist_norm).mark_line(opacity=0.35).encode(
+        x=alt.X("days_to_close:Q", title="Days to closing (Dec 24)"),
+        y=alt.Y("per_show_cum_qty:Q", title="Cumulative tickets per show"),
+        color=alt.Color("season:N", title="Season"),
+        tooltip=["season", "city", "per_show_cum_qty"],
+    )
+
+    this_norm = this_daily.dropna(subset=["days_to_close"]).copy()
+    line_this = alt.Chart(this_norm).mark_line(size=3).encode(
+        x="days_to_close:Q",
+        y="per_show_cum_qty:Q",
+        color=alt.Color("city:N", title="City"),
+        tooltip=["city", "per_show_cum_qty"],
+    )
+    st.altair_chart((lines_hist + line_this).properties(height=260), use_container_width=True)
+
+    if show_revenue and ("cum_rev" in daily.columns) and daily["cum_rev"].notna().any():
+        st.subheader("Revenue trajectory (if provided)")
+        rev = daily.dropna(subset=["days_to_close"]).copy()
+        rev_chart = alt.Chart(rev).mark_line().encode(
+            x=alt.X("days_to_close:Q", title="Days to closing (Dec 24)"),
+            y=alt.Y("cum_rev:Q", title="Cumulative revenue"),
+            color=alt.Color("season:N", title="Season"),
+            tooltip=["season", "city", "cum_rev"],
+        )
+        st.altair_chart(rev_chart.properties(height=260), use_container_width=True)
+
+with right:
+    st.subheader("Summary & projection")
+    st.dataframe(
+        summary_df.assign(
+            projected_final_qty=summary_df["projected_final_qty"].round(0),
+            projected_pct_capacity=(summary_df["projected_pct_capacity"] * 100).round(1),
+        ),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    st.download_button(
+        label="Download projection by day (CSV)",
+        data=proj_df.to_csv(index=False).encode("utf-8"),
+        file_name=f"nutcracker_projection_by_day_{this_season}.csv",
+        mime="text/csv",
+    )
+
+    st.download_button(
+        label="Download summary (CSV)",
+        data=summary_df.to_csv(index=False).encode("utf-8"),
+        file_name=f"nutcracker_projection_summary_{this_season}.csv",
+        mime="text/csv",
+    )
+
+# ----------------------------
+# Footer notes
+# ----------------------------
+st.markdown(
+    """
+**How projections work**  
+We compute an average **cumulative share curve** across your selected reference seasons (by city). 
+At today's *days to closing*, we read the mean share and divide current cumulative tickets by that share
+(e.g., if reference says 62% sold at −14 days to closing and you’re at 15,500, the shape-projected final is ~25,000).  
+Where available, we also show a band using the min/max shares from reference seasons.
+
+**Normalizing for more shows**  
+If capacity per performance is provided, we compute capacity-based metrics and show **% of capacity**. 
+If not, we normalize **per show** so seasons with more shows are comparable to seasons with fewer shows.
+
+**`data/` usage**  
+- Put your files in `data/` at repo root.
+- Use fixed names (`historical.csv`, `this_year.csv`) or date-stamped patterns (`historical_2022-2024.csv`, `this_year_2025_2025-11-02.csv`).
+- The sidebar lets you pick which files to use when multiple matches exist.
+"""
+)
