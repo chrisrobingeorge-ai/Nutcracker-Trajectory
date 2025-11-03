@@ -729,11 +729,44 @@ if (latest_tickets > 0) or (latest_revenue > 0):
         new_row["revenue"] = float(latest_revenue)
 
     if "city" in this_df.columns:
-        # Use the most common city label in this_year data; it will be overwritten
-        # to 'Combined' later if you're in Combined mode.
         new_row["city"] = this_df["city"].mode()[0]
 
+    if "source" in this_df.columns:
+        # assume extra sales follow the dominant source this year
+        new_row["source"] = this_df["source"].mode()[0]
+
     this_df = pd.concat([this_df, pd.DataFrame([new_row])], ignore_index=True)
+
+# ----------------------------
+# Ticketing source filter (Ticketmaster vs Archtics etc.)
+# ----------------------------
+with st.sidebar:
+    st.header("4) Ticketing source")
+    all_sources = []
+
+    if "source" in hist_df.columns:
+        all_sources += hist_df["source"].dropna().astype(str).tolist()
+    if "source" in this_df.columns:
+        all_sources += this_df["source"].dropna().astype(str).tolist()
+
+    all_sources = sorted(set(all_sources))
+
+    if all_sources:
+        selected_sources = st.multiselect(
+            "Include sources",
+            options=all_sources,
+            default=all_sources,
+            help="Filter to Ticketmaster, Archtics, or both.",
+        )
+    else:
+        selected_sources = []
+
+# Apply source filter to data frames before building all_df
+if selected_sources:
+    if "source" in hist_df.columns:
+        hist_df = hist_df[hist_df["source"].isin(selected_sources)]
+    if "source" in this_df.columns:
+        this_df = this_df[this_df["source"].isin(selected_sources)]
 
 # Optional city collapsing
 all_df = pd.concat([hist_df, this_df], ignore_index=True)
