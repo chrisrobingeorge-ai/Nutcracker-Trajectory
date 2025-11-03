@@ -69,60 +69,65 @@ THIS_PATTERN = "this_year_*.csv"
 # ----------------------------
 # Helpers (closing-date; no opening-date dependency)
 # ----------------------------
-DATE_COL_CANDIDATES = ["order_date", "sale_date", "sales_date", "transaction_date", "date"]
-QTY_COL_CANDIDATES  = ["qty", "tickets_sold", "units", "tickets", "tickets sold"]
-SEASON_COL_CANDIDATES = ["season", "year"]
-CITY_COL_CANDIDATES   = ["city", "market"]
-PERF_ID_CANDIDATES    = ["performance_id", "perf_id", "show_id"]  # optional
-CAPACITY_COL_CANDIDATES = ["capacity", "seats", "house_capacity", "total_capacity"]  # optional
-REVENUE_COL_CANDIDATES  = ["revenue", "gross", "amount"]  # optional
-SOURCE_COL_CANDIDATES   = ["source", "platform", "channel", "system"]  # optional (Ticketmaster/Archtics)
+# ---- Column name candidates (flexible headers supported) ----
+DATE_COL_CANDIDATES = [
+    "order_date","sale_date","sales_date","transaction_date","date","sales date"
+]
+QTY_COL_CANDIDATES = ["qty","tickets_sold","tickets","units","tickets sold"]
+SEASON_COL_CANDIDATES = ["season","year"]
+CITY_COL_CANDIDATES = ["city","market"]
+CAPACITY_COL_CANDIDATES = ["capacity","seats","house_capacity","total_capacity"]
+REVENUE_COL_CANDIDATES = ["revenue","gross","amount"]
+SOURCE_COL_CANDIDATES  = ["source","platform","channel","system"]
 
-def _find_col(cols: List[str], candidates: List[str]) -> Optional[str]:
+def _find_col(cols: list[str], candidates: list[str]):
+    """Pick the first matching column name (case-insensitive) from a list of candidates."""
     low = {c.lower(): c for c in cols}
     for c in candidates:
         if c in low:
             return low[c]
     return None
 
-
 def _coerce_dates(df: pd.DataFrame, col: str) -> pd.Series:
+    """Parse a date column safely and strip any timezone."""
     return pd.to_datetime(df[col], errors="coerce").dt.tz_localize(None)
 
 @st.cache_data(show_spinner=False)
 def load_and_standardize_from_path(path: Path) -> pd.DataFrame:
+    """Read a CSV and rename flexible headers to canonical names the app uses."""
     if not path.exists():
         raise FileNotFoundError(f"File not found: {path}")
     df = pd.read_csv(path)
-    lower = {c.lower(): c for c in df.columns}
+    cols = list(df.columns)
 
-    season_col = _find_col(list(lower.keys()), SEASON_COL_CANDIDATES)
-    date_col   = _find_col(list(lower.keys()), DATE_COL_CANDIDATES)
-    qty_col    = _find_col(list(lower.keys()), QTY_COL_CANDIDATES)
-    city_col   = _find_col(list(lower.keys()), CITY_COL_CANDIDATES)
-    perf_id_col= _find_col(list(lower.keys()), PERF_ID_CANDIDATES)
-    cap_col    = _find_col(list(lower.keys()), CAPACITY_COL_CANDIDATES)
-    rev_col    = _find_col(list(lower.keys()), REVENUE_COL_CANDIDATES)
-    src_col    = _find_col(list(lower.keys()), SOURCE_COL_CANDIDATES)
+    season_col = _find_col(cols, SEASON_COL_CANDIDATES)
+    date_col   = _find_col(cols, DATE_COL_CANDIDATES)
+    qty_col    = _find_col(cols, QTY_COL_CANDIDATES)
+    city_col   = _find_col(cols, CITY_COL_CANDIDATES)
+    cap_col    = _find_col(cols, CAPACITY_COL_CANDIDATES)
+    rev_col    = _find_col(cols, REVENUE_COL_CANDIDATES)
+    src_col    = _find_col(cols, SOURCE_COL_CANDIDATES)
 
-    # Required: season, sale date, qty (NO performance_date required)
+    # Required columns (minimal)
     missing = []
     if season_col is None: missing.append("season/year")
-    if date_col   is None: missing.append("order_date/sale_date")
+    if date_col   is None: missing.append("sale_date (e.g., Date, order_date, sales_date)")
     if qty_col    is None: missing.append("qty/tickets_sold")
     if missing:
-        raise ValueError(f"{path.name}: Missing required column(s): " + ", ".join(missing))
+        raise ValueError(
+            f"{path.name}: Missing required column(s): {', '.join(missing)}. "
+            f"Found columns: {cols}"
+        )
 
-    # Rename core + optional
+    # Rename to canonical names used throughout the app
     ren = {season_col: "season", date_col: "sale_date", qty_col: "qty"}
-    if city_col:     ren[city_col]     = "city"
-    if rev_col:      ren[rev_col]      = "revenue"
-    if cap_col:      ren[cap_col]      = "capacity"
-    if src_col:      ren[src_col]      = "source"
-    if perf_id_col:  ren[perf_id_col]  = "performance_id"
+    if city_col: ren[city_col] = "city"
+    if cap_col:  ren[cap_col]  = "capacity"
+    if rev_col:  ren[rev_col]  = "revenue"
+    if src_col:  ren[src_col]  = "source"
     df = df.rename(columns=ren)
 
-    # Types
+    # Types & cleanup
     df["sale_date"] = _coerce_dates(df, "sale_date")
     df["qty"] = pd.to_numeric(df["qty"], errors="coerce").fillna(0).astype(int)
     if "revenue" in df.columns:
@@ -130,12 +135,19 @@ def load_and_standardize_from_path(path: Path) -> pd.DataFrame:
     if "capacity" in df.columns:
         df["capacity"] = pd.to_numeric(df["capacity"], errors="coerce").astype("Float64")
 
-    # Normalizations
     df["season"] = df["season"].astype(str).str.strip()
     if "city" not in df.columns:
         df["city"] = "Combined"
     if "source" in df.columns:
         df["source"] = df["source"].fillna("Unknown").replace({"": "Unknown"})
+
+    # Final sanity check for dates
+    if df["sale_date"].isna().any():
+        bad = df.loc[df["sale_date"].isna()].head(5)
+        raise ValueError(
+            f"{path.name}: Some sale_date values could not be parsed. "
+            f"Example rows:\n{bad.to_string(index=False)}"
+        )
 
     return df
 
