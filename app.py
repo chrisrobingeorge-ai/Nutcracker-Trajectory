@@ -173,49 +173,49 @@ def _season_to_closing_year(s: str) -> Optional[int]:
         return int(m.group(1))
     return None
 
-
 def _extend_current_to_closing(daily: pd.DataFrame, this_season: str) -> pd.DataFrame:
     """
-    For the current season, create future rows (one per calendar day) up to closing_date,
-    carrying season/city forward. These rows get qty=0 (and revenue=0 if present).
-    We read closing_date directly from `daily` to avoid merge/typing mismatches.
+    Extend the current season to Dec 24 per city by adding daily rows with qty=0 (and revenue=0 if present).
+    Requires daily to already contain `closing_date`.
     """
     cur = daily[daily["season"] == this_season].copy()
     if cur.empty:
-        return daily  # nothing to add; return original frame
+        return daily
 
-    needed_cols = ["season", "city", "sale_date", "closing_date"]
-    missing = [c for c in needed_cols if c not in cur.columns]
+    required = {"season", "city", "sale_date", "closing_date"}
+    missing = required - set(cur.columns)
     if missing:
-        raise ValueError(f"_extend_current_to_closing: missing columns in daily: {missing}")
+        raise ValueError(f"_extend_current_to_closing: missing columns in daily: {sorted(missing)}")
 
-    rows = []
+    new_rows = []
     for city, g in cur.groupby("city"):
         close = pd.to_datetime(g["closing_date"].iloc[0]).normalize()
         last_dt = pd.to_datetime(g["sale_date"].max()).normalize()
-        if last_dt >= close:
+        if pd.isna(close) or pd.isna(last_dt) or last_dt >= close:
             continue
 
         future_days = pd.date_range(start=last_dt + pd.Timedelta(days=1), end=close, freq="D")
-        # Build directly from arrays (no scalar dict + reindex)
-        f = pd.DataFrame({
-            "season":     np.repeat(this_season, len(future_days)),
-            "city":       np.repeat(city,        len(future_days)),
-            "sale_date":  future_days,
-            "qty":        np.zeros(len(future_days), dtype=int),
-        })
+        n = len(future_days)
+        if n == 0:
+            continue
+
+        block = {
+            "season": [this_season] * n,
+            "city":   [city] * n,
+            "sale_date": future_days,
+            "qty": np.zeros(n, dtype=int),
+        }
         if "revenue" in daily.columns:
-            f["revenue"] = np.zeros(len(future_days), dtype=float)
+            block["revenue"] = np.zeros(n, dtype=float)
 
-        rows.append(f)
+        new_rows.append(pd.DataFrame(block))
 
-    if not rows:
+    if not new_rows:
         return daily
 
-    fut = pd.concat(rows, ignore_index=True)
-    out = pd.concat([daily, fut], ignore_index=True)
-    out = out.sort_values(["season", "city", "sale_date"]).reset_index(drop=True)
-    return out
+    fut = pd.concat(new_rows, ignore_index=True)
+    out = pd.concat([daily, fut], ignore_index=True).sort_values(["season", "city", "sale_date"])
+    return out.reset_index(drop=True)
 
 def compute_calendar_refs(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
     # Build meta per (season,city) with Dec 24 closing
