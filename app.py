@@ -369,7 +369,7 @@ def project_this_year(
     for city, g in proj.groupby("city"):
         cap_total = g["total_capacity"].iloc[-1] if "total_capacity" in g.columns else np.nan
         proj_final_qty = g["proj_cum_qty"].dropna().iloc[-1] if g["proj_cum_qty"].notna().any() else np.nan
-        proj_final_rev = g["proj_cum_rev"].dropna().iloc[-1] if "proj_cum_rev"].notna().any() else np.nan
+        proj_final_rev = g["proj_cum_rev"].dropna().iloc[-1] if g["proj_cum_rev"].notna().any() else np.nan
         pct_cap = (proj_final_qty / cap_total) if (pd.notna(proj_final_qty) and pd.notna(cap_total) and cap_total > 0) else np.nan
 
         row = dict(
