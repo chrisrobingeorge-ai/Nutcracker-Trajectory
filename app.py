@@ -413,6 +413,19 @@ def project_this_year(daily: pd.DataFrame,
         if pd.notna(ref_today_share) and ref_today_share > 0 and pd.notna(cum_qty_today):
             scale_qty = cum_qty_today / ref_today_share
 
+        # ---- capacity ceiling: don't project more tickets than total capacity ----
+        cap_total = np.nan
+        if "total_capacity" in g.columns and g["total_capacity"].notna().any():
+            cap_total = g["total_capacity"].dropna().iloc[0]
+
+            if (
+                pd.notna(scale_qty)
+                and pd.notna(cap_total)
+                and cap_total > 0
+                and scale_qty > cap_total
+            ):
+                scale_qty = cap_total
+
         # Ticket projections along full horizon (including future dates)
         g["proj_cum_qty"]     = g["mean_share_ffill"] * scale_qty if pd.notna(scale_qty) else np.nan
         g["proj_min_cum_qty"] = g["min_share_ffill"]  * scale_qty if (pd.notna(scale_qty) and "min_share" in g.columns) else np.nan
