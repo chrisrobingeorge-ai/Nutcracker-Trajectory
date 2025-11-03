@@ -485,6 +485,11 @@ except Exception as e:
 # Densify so we have a share for every day up to 0 per city
 ref_curve = _densify_ref_curve(ref_curve, daily)
 
+st.caption("🔎 Ref curve coverage (min→max days_to_close) per city")
+st.dataframe(
+    ref_curve.groupby("city")["days_to_close"].agg(["min","max"]).reset_index(),
+    use_container_width=True
+)
 # Extend the current season to closing day so we can draw projections out to Dec 24
 daily_extended = daily.copy()
 daily_extended = _extend_current_to_closing(daily_extended, run_meta, this_season)
@@ -526,6 +531,21 @@ daily_extended["days_to_close"] = (
 daily_extended["days_to_close"] = pd.to_numeric(daily_extended["days_to_close"], downcast="integer", errors="coerce")
 ref_curve["days_to_close"]      = pd.to_numeric(ref_curve["days_to_close"],      downcast="integer", errors="coerce")
 
+# Ensure join key types match (int) to avoid NaN merges
+daily_extended["days_to_close"] = pd.to_numeric(daily_extended["days_to_close"], downcast="integer", errors="coerce")
+ref_curve["days_to_close"]      = pd.to_numeric(ref_curve["days_to_close"],      downcast="integer", errors="coerce")
+
+# 🔎 DEBUG #1 — sanity check that we really extended to Dec 24
+dbg = daily_extended[daily_extended["season"] == this_season].copy()
+dbg_tail = dbg.sort_values(["city","sale_date"]).groupby("city").tail(5)
+st.caption("🔎 Sanity — last 5 dates per city after extension")
+st.dataframe(dbg_tail[["season","city","sale_date","days_to_close","cum_qty"]], use_container_width=True)
+
+st.caption("🔎 City labels present in frames")
+st.write({
+    "daily_extended_cities": sorted(daily_extended["city"].unique().tolist()),
+    "ref_curve_cities": sorted(ref_curve["city"].unique().tolist()),
+})
 # Now project on the extended data
 proj_df, summary_df = project_this_year(daily_extended, this_season, ref_curve, run_meta)
 
