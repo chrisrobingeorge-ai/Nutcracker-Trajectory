@@ -700,10 +700,7 @@ else:
 # ----------------------------
 st.subheader("Projection by day (this season)")
 
-table_df = table_df[cols_order].sort_values(
-    ["city", "sale_date"],
-    ascending=[True, False],  # city A–Z, newest dates first
-)
+table_df = plot_proj[plot_proj["season"] == this_season].copy()
 
 # Column order (internal names)
 cols_order = [
@@ -719,7 +716,10 @@ cols_order = [
     "proj_cum_rev",
 ]
 cols_order = [c for c in cols_order if c in table_df.columns]
-table_df = table_df[cols_order].sort_values(["city", "sale_date"])
+table_df = table_df[cols_order].sort_values(
+    ["city", "sale_date"],
+    ascending=[True, False],  # city A–Z, newest dates first
+)
 
 # Lay-friendly headers (display + CSV only)
 pretty_cols = {
