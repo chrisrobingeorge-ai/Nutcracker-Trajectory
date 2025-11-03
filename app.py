@@ -316,9 +316,14 @@ def project_this_year(
     ref_curve: pd.DataFrame,
     run_meta: pd.DataFrame,
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    # --- normalize join dtypes (prevents NaN merges on days_to_close) ---
+    daily["days_to_close"]     = pd.to_numeric(daily["days_to_close"], downcast="integer", errors="coerce")
+    ref_curve["days_to_close"] = pd.to_numeric(ref_curve["days_to_close"], downcast="integer", errors="coerce")
+
     cur = daily[daily["season"] == this_season].copy()
     cur = cur.merge(run_meta[["season","city","num_shows","total_capacity"]], on=["season","city"], how="left")
     cur = cur.merge(ref_curve, on=["city", "days_to_close"], how="left")
+
 
     proj_rows = []
     for city, g in cur.groupby("city"):
@@ -494,6 +499,9 @@ daily_extended["days_to_close"] = (
     daily_extended["sale_date"].dt.normalize() - daily_extended["closing_date"]
 ).dt.days
 
+# Ensure join key types match (int) to avoid NaN merges
+daily_extended["days_to_close"] = pd.to_numeric(daily_extended["days_to_close"], downcast="integer", errors="coerce")
+ref_curve["days_to_close"]      = pd.to_numeric(ref_curve["days_to_close"],      downcast="integer", errors="coerce")
 
 # Now project on the extended data
 proj_df, summary_df = project_this_year(daily_extended, this_season, ref_curve, run_meta)
