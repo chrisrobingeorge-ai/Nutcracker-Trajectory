@@ -719,10 +719,14 @@ with left:
     )
     
     # 3) This year PROJECTION — from proj_df (extended with projected cum_qty)
+    # Find last actual sales date for this season (from non-extended data)
+    last_actual_date = this_daily["sale_date"].max()
+    dtc_today = this_daily.loc[this_daily["sale_date"] == last_actual_date, "days_to_close"].iloc[0]
     this_abs_proj = proj_df[
         (proj_df["season"] == this_season)
         & proj_df["proj_cum_qty"].notna()
         & proj_df["days_to_close"].notna()
+        & (proj_df["days_to_close"] >= dtc_today)          # << only from last actual onward
         & (proj_df["days_to_close"] >= -window_days)
     ].copy()
     
