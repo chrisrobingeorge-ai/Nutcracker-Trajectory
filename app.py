@@ -321,17 +321,12 @@ def build_reference_curve(daily: pd.DataFrame, seasons_ref: List[str]) -> pd.Dat
     return agg
 
 def _densify_ref_curve(ref_curve: pd.DataFrame, daily: pd.DataFrame) -> pd.DataFrame:
-    """
-    Ensure we have a share value for every days_to_close per city, up to 0.
-    Fills gaps by interpolation; clips to [0,1] for ticket shares; enforces monotonic non-decreasing for ticket shares.
-    Revenue shares are interpolated but not forced monotonic (price mix can vary).
-    """
     if ref_curve.empty:
         return ref_curve
 
     hist = daily[daily["share_of_final_qty"].notna()]
     limits = (hist.groupby("city")["days_to_close"].agg(["min", "max"]).reset_index()
-                  .rename(columns={"min":"min_dtc","max":"max_dtc"}))
+              .rename(columns={"min":"min_dtc","max":"max_dtc"}))
     limits["max_dtc"] = 0
 
     out = []
@@ -342,24 +337,24 @@ def _densify_ref_curve(ref_curve: pd.DataFrame, daily: pd.DataFrame) -> pd.DataF
             continue
 
         idx = pd.Index(range(int(row["min_dtc"]), 1), name="days_to_close")
-        g = (g.set_index("days_to_close")
-               .reindex(idx)
-               .sort_index())
+        g = (g.set_index("days_to_close").reindex(idx).sort_index())
 
-        # Interpolate where missing
-        for col in [
-            "mean_share", "min_share", "max_share",
-            "mean_per_show",
-            "mean_rev_share", "min_rev_share", "max_rev_share"
-        ]:
+        # interpolate shares/rev shares + per-show
+        for col in ["mean_share","min_share","max_share","mean_per_show",
+                    "mean_rev_share","min_rev_share","max_rev_share"]:
             if col in g.columns:
                 g[col] = g[col].interpolate(method="linear", limit_direction="both")
 
-        # Tickets share: clip and monotone
-        for col in ["mean_share", "min_share", "max_share"]:
+        # **HARD ANCHOR** at closing day
+        if 0 in g.index:
+            for col in ["mean_share","min_share","max_share"]:
+                if col in g.columns:
+                    g.loc[0, col] = 1.0
+
+        # clip + monotone for ticket shares
+        for col in ["mean_share","min_share","max_share"]:
             if col in g.columns:
-                g[col] = g[col].clip(lower=0.0, upper=1.0)
-                g[col] = g[col].cummax()
+                g[col] = g[col].clip(0.0, 1.0).cummax()
 
         g = g.reset_index()
         g["city"] = city
@@ -367,38 +362,34 @@ def _densify_ref_curve(ref_curve: pd.DataFrame, daily: pd.DataFrame) -> pd.DataF
 
     return pd.concat(out, ignore_index=True) if out else ref_curve
 
-def project_this_year(
-    daily: pd.DataFrame,
-    this_season: str,
-    ref_curve: pd.DataFrame,
-    run_meta: pd.DataFrame,
-) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    # Normalize join dtypes (prevents NaN merges on days_to_close)
+
+def project_this_year(daily, this_season, ref_curve, run_meta):
     daily["days_to_close"]     = pd.to_numeric(daily["days_to_close"], downcast="integer", errors="coerce")
     ref_curve["days_to_close"] = pd.to_numeric(ref_curve["days_to_close"], downcast="integer", errors="coerce")
 
     cur = daily[daily["season"] == this_season].copy()
     cur = cur.merge(run_meta[["season","city","num_shows","total_capacity"]], on=["season","city"], how="left")
-    cur = cur.merge(ref_curve, on=["city", "days_to_close"], how="left")
+    cur = cur.merge(ref_curve, on=["city","days_to_close"], how="left")
 
-    proj_rows = []
+    out = []
     for city, g in cur.groupby("city"):
         g = g.sort_values("sale_date")
 
-        # ---------- Quantity projection ----------
         cum_qty_today = g["cum_qty"].iloc[-1] if len(g) else np.nan
 
-        # If the share is missing at "today", ffill the last known value for scaling
-        g["mean_share_ffill"] = g["mean_share"].interpolate("pad")
-        ref_today_share = g["mean_share_ffill"].dropna().iloc[-1] if g["mean_share_ffill"].notna().any() else np.nan
+        # **ffill** for today’s scaler and for the curve itself
+        g["mean_share"] = g["mean_share"].interpolate("pad")
+        ref_today_share = g["mean_share"].dropna().iloc[-1] if g["mean_share"].notna().any() else np.nan
 
-        proj_final_qty_shape = np.nan
+        scale_qty = np.nan
         if pd.notna(ref_today_share) and ref_today_share > 0:
-            proj_final_qty_shape = cum_qty_today / ref_today_share
+            scale_qty = cum_qty_today / ref_today_share
 
-        g["proj_cum_qty"]     = g["mean_share"] * proj_final_qty_shape if pd.notna(proj_final_qty_shape) else np.nan
-        g["proj_min_cum_qty"] = g["min_share"]  * proj_final_qty_shape if pd.notna(proj_final_qty_shape) else np.nan
-        g["proj_max_cum_qty"] = g["max_share"]  * proj_final_qty_shape if pd.notna(proj_final_qty_shape) else np.nan
+        g["proj_cum_qty"]     = g["mean_share"] * scale_qty if pd.notna(scale_qty) else np.nan
+        g["proj_min_cum_qty"] = (g["min_share"].interpolate("pad") * scale_qty
+                                 if ("min_share" in g and pd.notna(scale_qty)) else np.nan)
+        g["proj_max_cum_qty"] = (g["max_share"].interpolate("pad") * scale_qty
+                                 if ("max_share" in g and pd.notna(scale_qty)) else np.nan)
 
         # ---------- Revenue projection ----------
         if "cum_rev" in g.columns and g["cum_rev"].notna().any():
