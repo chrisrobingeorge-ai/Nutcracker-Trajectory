@@ -753,7 +753,11 @@ if not this_abs_proj.empty:
     layers.append(cur_proj_line)
 
 if layers:
-    chart = alt.layer(*layers).properties(height=300)
+    chart = (
+        alt.layer(*layers)
+        .resolve_scale(color="independent")   # <<< key line
+        .properties(height=300)
+    )
     st.altair_chart(chart, use_container_width=True)
 else:
     st.info("No data available yet for historicals and projections.")
