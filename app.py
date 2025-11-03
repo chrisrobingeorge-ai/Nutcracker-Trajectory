@@ -23,12 +23,11 @@ import streamlit as st
 # ----------------------------
 st.set_page_config(
     page_title="Nutcracker Trajectory Tracker",
-    page_icon="🩰",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-st.title("🩰 Nutcracker Sales Trajectory Tracker")
+st.title("Nutcracker Sales Trajectory Tracker")
 st.caption(
     "Reads CSVs from the repo's `data/` folder. Compare trajectories, normalize for show count/capacity, and project final totals."
 )
