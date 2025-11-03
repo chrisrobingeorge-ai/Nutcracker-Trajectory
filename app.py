@@ -700,8 +700,11 @@ else:
 # ----------------------------
 st.subheader("Projection by day (this season)")
 
+st.subheader("Projection by day (this season)")
+
 table_df = plot_proj[plot_proj["season"] == this_season].copy()
-# Keep a tidy column order; adjust as you like
+
+# Column order (internal names)
 cols_order = [
     "season",
     "city",
@@ -717,11 +720,27 @@ cols_order = [
 cols_order = [c for c in cols_order if c in table_df.columns]
 table_df = table_df[cols_order].sort_values(["city", "sale_date"])
 
-st.dataframe(table_df, use_container_width=True, hide_index=True)
+# Lay-friendly headers (display + CSV only)
+pretty_cols = {
+    "season": "Season",
+    "city": "City",
+    "sale_date": "Date",
+    "days_to_close": "Days to closing (Dec 24)",
+    "cum_qty": "Tickets sold so far (cum.)",
+    "proj_cum_qty": "Projected tickets (cum.)",
+    "proj_min_cum_qty": "Projection – low (cum.)",
+    "proj_max_cum_qty": "Projection – high (cum.)",
+    "cum_rev": "Revenue so far (cum.)",
+    "proj_cum_rev": "Projected revenue (cum.)",
+}
+
+display_df = table_df.rename(columns=pretty_cols)
+
+st.dataframe(display_df, use_container_width=True, hide_index=True)
 
 st.download_button(
     label="Download projection by day (CSV)",
-    data=table_df.to_csv(index=False).encode("utf-8"),
+    data=display_df.to_csv(index=False).encode("utf-8"),
     file_name=f"nutcracker_projection_by_day_{this_season}.csv",
     mime="text/csv",
 )
