@@ -690,13 +690,6 @@ hist_abs = daily[
     & (daily["days_to_close"] >= -window_days)
 ].copy()
 
-hist_chart = alt.Chart(hist_abs).mark_line(opacity=0.35).encode(
-    x=alt.X("days_to_close:Q", title="Days to closing (Dec 24)"),
-    y=alt.Y("cum_qty:Q", title="Cumulative tickets"),
-    color=alt.Color("season:N", title="Historical seasons"),
-    tooltip=["season", "city", "sale_date", "cum_qty"],
-)
-
 # 2) This year ACTUALS — from non-extended frame (stops at last real sale)
 this_abs_actual = this_daily[
     this_daily["cum_qty"].notna()
@@ -704,59 +697,129 @@ this_abs_actual = this_daily[
     & (this_daily["days_to_close"] >= -window_days)
 ].copy()
 
-cur_actual_line = alt.Chart(this_abs_actual).mark_line(size=3).encode(
-    x="days_to_close:Q",
-    y=alt.Y("cum_qty:Q", title="Cumulative tickets"),
-    color=alt.Color(
-        "season:N",
-        scale=alt.Scale(domain=[this_season], range=["navy"]),
-        legend=alt.Legend(title="This season"),
-    ),
-    tooltip=["city", "season", "sale_date", "cum_qty"],
-)
-
-# 3) This year PROJECTION — from plot_proj (only from last actual onward), NO legend
+# 3) This year PROJECTION — from proj_df (only from last actual onward)
 last_actual_date = this_daily["sale_date"].max()
 dtc_today = this_daily.loc[
     this_daily["sale_date"] == last_actual_date, "days_to_close"
 ].iloc[0]
 
-this_abs_proj = plot_proj[
-    (plot_proj["season"] == this_season)
-    & plot_proj["proj_cum_qty"].notna()
-    & plot_proj["days_to_close"].notna()
-    & (plot_proj["days_to_close"] >= dtc_today)
-    & (plot_proj["days_to_close"] >= -window_days)
+this_abs_proj = proj_df[
+    (proj_df["season"] == this_season)
+    & proj_df["proj_cum_qty"].notna()
+    & proj_df["days_to_close"].notna()
+    & (proj_df["days_to_close"] >= dtc_today)
+    & (proj_df["days_to_close"] >= -window_days)
 ].copy()
 
-cur_proj_line = alt.Chart(this_abs_proj).mark_line(
-    size=2,
-    strokeDash=[4, 2],  # dashed
-).encode(
-    x="days_to_close:Q",
-    y="proj_cum_qty:Q",
-    color=alt.value("navy"),  # fixed color ⇒ no legend entry
-    tooltip=["city", "season", "sale_date", "proj_cum_qty"],
-)
-
-# 4) Layer everything
-layers = []
-if not hist_abs.empty:
-    layers.append(hist_chart)
-if not this_abs_actual.empty:
-    layers.append(cur_actual_line)
-if not this_abs_proj.empty:
-    layers.append(cur_proj_line)
-
-if layers:
-    chart = (
-        alt.layer(*layers)
-        .resolve_scale(color="independent")  # keep hist + this-year legends separate
-        .properties(height=300)
+# ----------------------------
+# Combined view
+# ----------------------------
+if city_mode == "Combined":
+    hist_chart = alt.Chart(hist_abs).mark_line(opacity=0.35).encode(
+        x=alt.X("days_to_close:Q", title="Days to closing (Dec 24)"),
+        y=alt.Y("cum_qty:Q", title="Cumulative tickets"),
+        color=alt.Color("season:N", title="Historical seasons"),
+        tooltip=["season", "city", "sale_date", "cum_qty"],
     )
-    st.altair_chart(chart, use_container_width=True)
+
+    cur_actual_line = alt.Chart(this_abs_actual).mark_line(size=3).encode(
+        x="days_to_close:Q",
+        y=alt.Y("cum_qty:Q", title="Cumulative tickets"),
+        color=alt.Color(
+            "season:N",
+            scale=alt.Scale(domain=[this_season], range=["navy"]),
+            legend=alt.Legend(title="This season"),
+        ),
+        tooltip=["city", "season", "sale_date", "cum_qty"],
+    )
+
+    cur_proj_line = alt.Chart(this_abs_proj).mark_line(
+        size=2,
+        strokeDash=[4, 2],  # dashed
+    ).encode(
+        x="days_to_close:Q",
+        y="proj_cum_qty:Q",
+        color=alt.value("navy"),  # same color, no extra legend
+        tooltip=["city", "season", "sale_date", "proj_cum_qty"],
+    )
+
+    layers = []
+    if not hist_abs.empty:
+        layers.append(hist_chart)
+    if not this_abs_actual.empty:
+        layers.append(cur_actual_line)
+    if not this_abs_proj.empty:
+        layers.append(cur_proj_line)
+
+    if layers:
+        chart = (
+            alt.layer(*layers)
+            .resolve_scale(color="independent")
+            .properties(height=300)
+        )
+        st.altair_chart(chart, use_container_width=True)
+    else:
+        st.info("No data available yet for historicals and projections.")
+
+# ----------------------------
+# By-city view: one chart per city
+# ----------------------------
 else:
-    st.info("No data available yet for historicals and projections.")
+    cities = sorted(daily["city"].dropna().unique().tolist())
+
+    for city in cities:
+        st.markdown(f"### {city}")
+
+        hist_c = hist_abs[hist_abs["city"] == city]
+        this_actual_c = this_abs_actual[this_abs_actual["city"] == city]
+        this_proj_c = this_abs_proj[this_abs_proj["city"] == city]
+
+        hist_chart_c = alt.Chart(hist_c).mark_line(opacity=0.35).encode(
+            x=alt.X("days_to_close:Q", title="Days to closing (Dec 24)"),
+            y=alt.Y("cum_qty:Q", title="Cumulative tickets"),
+            color=alt.Color("season:N", title="Historical seasons"),
+            tooltip=["season", "city", "sale_date", "cum_qty"],
+        )
+
+        cur_actual_line_c = alt.Chart(this_actual_c).mark_line(size=3).encode(
+            x="days_to_close:Q",
+            y=alt.Y("cum_qty:Q", title="Cumulative tickets"),
+            color=alt.Color(
+                "season:N",
+                scale=alt.Scale(domain=[this_season], range=["navy"]),
+                legend=alt.Legend(title="This season"),
+            ),
+            tooltip=["city", "season", "sale_date", "cum_qty"],
+        )
+
+        cur_proj_line_c = alt.Chart(this_proj_c).mark_line(
+            size=2,
+            strokeDash=[4, 2],
+        ).encode(
+            x="days_to_close:Q",
+            y="proj_cum_qty:Q",
+            color=alt.value("navy"),
+            tooltip=["city", "season", "sale_date", "proj_cum_qty"],
+        )
+
+        layers_c = []
+        if not hist_c.empty:
+            layers_c.append(hist_chart_c)
+        if not this_actual_c.empty:
+            layers_c.append(cur_actual_line_c)
+        if not this_proj_c.empty:
+            layers_c.append(cur_proj_line_c)
+
+        if layers_c:
+            chart_c = (
+                alt.layer(*layers_c)
+                .resolve_scale(color="independent")
+                .properties(height=260)
+            )
+            st.altair_chart(chart_c, use_container_width=True)
+        else:
+            st.info(f"No data available yet for {city}.")
+
 
 # ----------------------------
 # Data table + download (this season by day)
