@@ -684,24 +684,60 @@ with left:
     else:
         st.info("No reference curve available for the selected seasons.")
 
-    st.subheader("Actual vs projected cumulative tickets")
-    abs_join = proj_df.dropna(subset=["days_to_close", "cum_qty"]).copy()
-    if not abs_join.empty:
-        act = alt.Chart(abs_join).mark_line().encode(
-            x=alt.X("days_to_close:Q", title="Days to closing (Dec 24)"),
-            y=alt.Y("cum_qty:Q", title="Cumulative tickets"),
-            color=alt.Color("city:N", title="City"),
-            tooltip=["city","season","sale_date","cum_qty"],
+    st.subheader("Actual vs projected cumulative tickets (historical vs this year)")
+    
+    # 1) Historical cumulative tickets (absolute), ref seasons only
+    hist_abs = daily[
+        daily["season"].isin(seasons_ref)
+        & daily["cum_qty"].notna()
+        & (daily["days_to_close"] >= -window_days)
+    ].copy()
+    
+    hist_chart = alt.Chart(hist_abs).mark_line(opacity=0.35).encode(
+        x=alt.X("days_to_close:Q", title="Days to closing (Dec 24)"),
+        y=alt.Y("cum_qty:Q", title="Cumulative tickets"),
+        color=alt.Color("season:N", title="Historical season"),
+        tooltip=["season", "city", "sale_date", "cum_qty"],
+    )
+    
+    # 2) This year: actuals + projection from proj_df
+    this_abs = proj_df[
+        (proj_df["season"] == this_season)
+        & proj_df["days_to_close"].notna()
+        & (proj_df["days_to_close"] >= -window_days)
+    ].copy()
+    
+    cur_actual = this_abs.dropna(subset=["cum_qty"])
+    cur_proj   = this_abs.dropna(subset=["proj_cum_qty"])
+    
+    layers = []
+    
+    if not hist_abs.empty:
+        layers.append(hist_chart)
+    
+    if not cur_actual.empty:
+        cur_line = alt.Chart(cur_actual).mark_line(size=3).encode(
+            x="days_to_close:Q",
+            y="cum_qty:Q",
+            color=alt.value("black"),
+            tooltip=["city", "season", "sale_date", "cum_qty"],
         )
-        proj = alt.Chart(abs_join.dropna(subset=["proj_cum_qty"])).mark_line(strokeDash=[4,2]).encode(
+        layers.append(cur_line)
+    
+    if not cur_proj.empty:
+        cur_proj_line = alt.Chart(cur_proj).mark_line(strokeDash=[4, 2], size=2).encode(
             x="days_to_close:Q",
             y="proj_cum_qty:Q",
-            color=alt.Color("city:N", title="City"),
-            tooltip=["city","season","sale_date","proj_cum_qty"],
+            color=alt.value("black"),
+            tooltip=["city", "season", "sale_date", "proj_cum_qty"],
         )
-        st.altair_chart((act + proj).properties(height=300), use_container_width=True)
+        layers.append(cur_proj_line)
+    
+    if layers:
+        chart = alt.layer(*layers).resolve_scale(color="independent").properties(height=300)
+        st.altair_chart(chart, use_container_width=True)
     else:
-        st.info("No data available yet for actuals/projections.")
+        st.info("No data available yet for historicals and projections.")
 
     st.subheader("Normalized per-show cumulative (historical vs this year)")
     hist_norm = ref_daily.dropna(subset=["days_to_close","per_show_cum_qty"])
