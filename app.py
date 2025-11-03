@@ -1,14 +1,5 @@
 # Nutcracker Sales Trajectory Tracker (Streamlit)
 # -------------------------------------------------
-# Purpose
-# - Compare this year's Nutcracker sales trajectory to prior years
-# - Normalize for different numbers of performances (and capacity if available)
-# - Project final sales using historical cumulative share curves
-# - Handle Calgary vs Edmonton (or combined) views
-# - Reads CSVs from a local `data/` folder in the repo (no file uploads)
-# - Timeline anchored to closing day (Dec 24) each year
-# -------------------------------------------------
-
 from __future__ import annotations
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -169,8 +160,8 @@ def _season_to_closing_year(s: str) -> Optional[int]:
 
 def _extend_current_to_closing(daily: pd.DataFrame, this_season: str) -> pd.DataFrame:
     """
-    Extend the current season to Dec 24 per city by adding daily rows with qty=0 (and revenue=0 if present).
-    Critically: stamp `closing_date` onto these new rows to avoid NaNs later.
+    Extend the current season to city-specific closing date by adding daily rows with qty=0
+    (and revenue=0 if present).
     """
     cur = daily[daily["season"] == this_season].copy()
     if cur.empty:
@@ -198,7 +189,7 @@ def _extend_current_to_closing(daily: pd.DataFrame, this_season: str) -> pd.Data
             "city":   [city] * n,
             "sale_date": future_days,
             "qty": np.zeros(n, dtype=int),
-            "closing_date": [close] * n,           # <<<<<<<<<<<<<<  IMPORTANT
+            "closing_date": [close] * n,
         }
         if "revenue" in daily.columns:
             block["revenue"] = np.zeros(n, dtype=float)
@@ -213,12 +204,8 @@ def _extend_current_to_closing(daily: pd.DataFrame, this_season: str) -> pd.Data
     return out.reset_index(drop=True)
 
 def _is_weird_season_label(s: str) -> bool:
-    """
-    Tag 'non-normal' seasons. Right now we only treat any label containing
-    '2021' as weird (e.g., '2021', '2021/22', 'Season 2021-22').
-    """
+    """Tag 'non-normal' seasons. Right now any label containing '2021' is treated as weird."""
     return "2021" in str(s)
-
 
 def _city_closing_day(city: str) -> int:
     """
@@ -232,7 +219,7 @@ def _city_closing_day(city: str) -> int:
     return 24
 
 def compute_calendar_refs(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    # Build meta per (season,city) with Dec 24 closing
+    # Build meta per (season,city) with city-specific closing day
     meta = (
         df[["season", "city"]].drop_duplicates()
           .assign(closing_year=lambda x: x["season"].apply(_season_to_closing_year))
@@ -241,7 +228,6 @@ def compute_calendar_refs(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]
         bad = meta[meta["closing_year"].isna()]["season"].unique().tolist()
         raise ValueError(f"Could not parse closing year from season labels: {bad}")
 
-    # City-specific closing dates: Edmonton ends on Dec 7, others on Dec 24
     meta["closing_date"] = meta.apply(
         lambda r: pd.Timestamp(
             year=int(r["closing_year"]),
@@ -274,7 +260,6 @@ def compute_calendar_refs(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]
     
     mask_na_close = daily["closing_date"].isna()
     if mask_na_close.any():
-        # Try recomputing from season string directly
         fix = daily.loc[mask_na_close, ["season"]].copy()
         fix["closing_year"] = fix["season"].apply(_season_to_closing_year)
         with np.errstate(all='ignore'):
@@ -282,8 +267,6 @@ def compute_calendar_refs(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]
                 dict(year=fix["closing_year"].astype("Int64"), month=12, day=24),
                 errors="coerce"
             )
-    
-        # If still missing, surface a clear error with the offending keys
         still = daily.loc[daily["closing_date"].isna(), ["season", "city"]].drop_duplicates()
         if not still.empty:
             raise ValueError(
@@ -292,7 +275,7 @@ def compute_calendar_refs(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]
                 + still.to_string(index=False)
             )
 
-    # days_to_close: negative before Dec 24, 0 on Dec 24
+    # days_to_close: negative before closing, 0 on closing day
     daily["days_to_close"] = (daily["sale_date"].dt.normalize() - daily["closing_date"]).dt.days
 
     # cumulative
@@ -365,19 +348,16 @@ def _densify_ref_curve(ref_curve: pd.DataFrame, daily: pd.DataFrame) -> pd.DataF
         idx = pd.Index(range(int(row["min_dtc"]), 1), name="days_to_close")
         g = (g.set_index("days_to_close").reindex(idx).sort_index())
 
-        # interpolate shares/rev shares + per-show
         for col in ["mean_share","min_share","max_share","mean_per_show",
                     "mean_rev_share","min_rev_share","max_rev_share"]:
             if col in g.columns:
                 g[col] = g[col].interpolate(method="linear", limit_direction="both")
 
-        # **HARD ANCHOR** at closing day
         if 0 in g.index:
             for col in ["mean_share","min_share","max_share"]:
                 if col in g.columns:
                     g.loc[0, col] = 1.0
 
-        # clip + monotone for ticket shares
         for col in ["mean_share","min_share","max_share"]:
             if col in g.columns:
                 g[col] = g[col].clip(0.0, 1.0).cummax()
@@ -388,11 +368,13 @@ def _densify_ref_curve(ref_curve: pd.DataFrame, daily: pd.DataFrame) -> pd.DataF
 
     return pd.concat(out, ignore_index=True) if out else ref_curve
 
-def project_this_year(daily: pd.DataFrame,
-                      this_season: str,
-                      ref_curve: pd.DataFrame,
-                      run_meta: pd.DataFrame,
-                      seasons_ref: List[str]) -> Tuple[pd.DataFrame, pd.DataFrame]:
+def project_this_year(
+    daily: pd.DataFrame,
+    this_season: str,
+    ref_curve: pd.DataFrame,
+    run_meta: pd.DataFrame,
+    seasons_ref: List[str],
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
 
     # Ensure integer-ish DTC for joins
     daily["days_to_close"]     = pd.to_numeric(daily["days_to_close"], downcast="integer", errors="coerce")
@@ -428,7 +410,7 @@ def project_this_year(daily: pd.DataFrame,
 
         g["mean_share_ffill"] = g["mean_share"].ffill()
 
-        # ---- Central scale from "today" (shape-based, as before) ----
+        # ---- Central scale from "today" (shape-based) ----
         if mask_anchor.any():
             cum_qty_today = (
                 g.loc[mask_anchor, "cum_qty"].dropna().iloc[-1]
@@ -464,8 +446,6 @@ def project_this_year(daily: pd.DataFrame,
 
             for season, h in ref_city.groupby("season"):
                 h = h.sort_values("days_to_close")
-
-                # Use the last available date that is <= today's DTC in that season
                 h_cut = h[h["days_to_close"] <= dtc_anchor]
                 if h_cut.empty:
                     continue
@@ -478,7 +458,7 @@ def project_this_year(daily: pd.DataFrame,
                     pd.notna(cum) and cum > 0
                     and pd.notna(final) and final > 0
                 ):
-                    R_list.append(final / cum)  # "how much higher do we end vs today?"
+                    R_list.append(final / cum)
 
             if len(R_list) >= 2:
                 R_arr = np.array(R_list)
@@ -490,7 +470,7 @@ def project_this_year(daily: pd.DataFrame,
                     low_factor = low_R / median_R
                     high_factor = high_R / median_R
 
-        # ---- Apply capacity ceiling on ALL finals ----
+        # ---- Capacity ceiling on all finals ----
         cap_total = np.nan
         if "total_capacity" in g.columns and g["total_capacity"].notna().any():
             cap_total = g["total_capacity"].dropna().iloc[0]
@@ -510,7 +490,7 @@ def project_this_year(daily: pd.DataFrame,
             if pd.notna(final_high):
                 final_high = min(final_high, cap_total)
 
-        # Ticket projections along full horizon (including future dates)
+        # Ticket projections along full horizon
         g["proj_cum_qty"] = (
             g["mean_share_ffill"] * final_mean if pd.notna(final_mean) else np.nan
         )
@@ -523,7 +503,6 @@ def project_this_year(daily: pd.DataFrame,
 
         # ---------- Revenue projection ----------
         if "cum_rev" in g.columns and g["cum_rev"].notna().any():
-            # Simple approach for now: keep your existing logic (share-of-final or ASP)
             if mask_anchor.any():
                 cum_rev_today = (
                     g.loc[mask_anchor, "cum_rev"].dropna().iloc[-1]
@@ -558,7 +537,6 @@ def project_this_year(daily: pd.DataFrame,
                     else np.nan
                 )
             else:
-                # Fallback: avg price so far × projected qty
                 avg_price = (
                     cum_rev_today / cum_qty_today
                     if (
@@ -578,7 +556,7 @@ def project_this_year(daily: pd.DataFrame,
 
     proj = pd.concat(proj_rows, ignore_index=True) if proj_rows else cur
 
-    # ---------- Summary (prefer exact closing-day row) ----------
+    # ---------- Summary ----------
     summaries = []
     for city, g in proj.groupby("city"):
         g = g.sort_values("days_to_close")
@@ -738,10 +716,10 @@ if (latest_tickets > 0) or (latest_revenue > 0):
     this_df = pd.concat([this_df, pd.DataFrame([new_row])], ignore_index=True)
 
 # ----------------------------
-# Ticketing source filter (Ticketmaster vs Archtics etc.)
+# Ticketing source filter (HISTORY ONLY)
 # ----------------------------
 with st.sidebar:
-    st.header("4) Ticketing source")
+    st.header("4) Ticketing source (history view)")
     all_sources = []
 
     if "source" in hist_df.columns:
@@ -756,19 +734,14 @@ with st.sidebar:
             "Include sources",
             options=all_sources,
             default=all_sources,
-            help="Filter to Ticketmaster, Archtics, or both.",
+            help="Filters historical/actual curves only. Projections always use all sources.",
         )
     else:
         selected_sources = []
 
-# Apply source filter to data frames before building all_df
-if selected_sources:
-    if "source" in hist_df.columns:
-        hist_df = hist_df[hist_df["source"].isin(selected_sources)]
-    if "source" in this_df.columns:
-        this_df = this_df[this_df["source"].isin(selected_sources)]
-
-# Optional city collapsing
+# ----------------------------
+# Main data (ALL sources) for projections
+# ----------------------------
 all_df = pd.concat([hist_df, this_df], ignore_index=True)
 if city_mode == "Combined":
     all_df["city"] = "Combined"
@@ -796,7 +769,7 @@ with st.sidebar:
     if not seasons_ref:
         st.warning("Select at least one reference season for projections.")
 
-# Separate frames for ref vs current
+# Separate frames for ref vs current (all sources)
 ref_daily = daily[daily["season"].isin(seasons_ref)].copy()
 this_daily = daily[daily["season"] == this_season].copy()
 
@@ -809,10 +782,10 @@ except Exception as e:
 
 ref_curve = _densify_ref_curve(ref_curve, daily)
 
-# Extend the current season to closing day so we can draw projections out to Dec 24
+# Extend the current season to closing day
 daily_extended = _extend_current_to_closing(daily, this_season)
 
-# ---- Backfill closing_date on any new rows that might still be NaN (belt & suspenders) ----
+# ---- Backfill closing_date on any new rows ----
 if daily_extended["closing_date"].isna().any():
     daily_extended = (
         daily_extended.drop(columns=["closing_date"])
@@ -827,20 +800,17 @@ if "revenue" in daily_extended.columns and daily_extended["revenue"].notna().any
 else:
     daily_extended["cum_rev"] = np.nan
 
-# Compute days_to_close exactly once here for the extended frame
 daily_extended["days_to_close"] = (
     daily_extended["sale_date"].dt.normalize() - daily_extended["closing_date"]
 ).dt.days
 
 # ----------------------------
-# Projection + plotting prep
+# Projection + plotting prep (ALL sources)
 # ----------------------------
-# Project on the extended data
 proj_df, summary_df = project_this_year(
     daily_extended, this_season, ref_curve, run_meta, seasons_ref
 )
 
-# Optionally gate projections for display only (don't touch summary_df)
 plot_proj = proj_df.copy()
 if "mean_share" in plot_proj.columns:
     too_early = plot_proj["mean_share"].notna() & (plot_proj["mean_share"] < min_share_to_project)
@@ -851,22 +821,38 @@ if "mean_share" in plot_proj.columns:
 # ----------------------------
 st.subheader("Actual vs projected cumulative tickets (historical vs this year)")
 
-# 1) Historical cumulative tickets (absolute), reference seasons only
-hist_abs = daily[
-    daily["season"].isin(seasons_ref)
-    & daily["cum_qty"].notna()
-    & daily["days_to_close"].notna()
-    & (daily["days_to_close"] >= -window_days)
+# ----------------------------
+# History-only daily (FILTERED by source for chart)
+# ----------------------------
+if selected_sources and "source" in hist_df.columns and "source" in this_df.columns:
+    hist_df_src = hist_df[hist_df["source"].isin(selected_sources)].copy()
+    this_df_src = this_df[this_df["source"].isin(selected_sources)].copy()
+
+    all_df_src = pd.concat([hist_df_src, this_df_src], ignore_index=True)
+    if city_mode == "Combined":
+        all_df_src["city"] = "Combined"
+
+    daily_src, _ = compute_calendar_refs(all_df_src)
+else:
+    daily_src = daily.copy()
+
+# 1) Historical cumulative tickets (absolute), reference seasons only — history view
+hist_abs = daily_src[
+    daily_src["season"].isin(seasons_ref)
+    & daily_src["cum_qty"].notna()
+    & daily_src["days_to_close"].notna()
+    & (daily_src["days_to_close"] >= -window_days)
 ].copy()
 
-# 2) This year ACTUALS — from non-extended frame (stops at last real sale)
-this_abs_actual = this_daily[
-    this_daily["cum_qty"].notna()
-    & this_daily["days_to_close"].notna()
-    & (this_daily["days_to_close"] >= -window_days)
+# 2) This year ACTUALS — from history frame (stops at last real sale, source-filtered)
+this_abs_actual = daily_src[
+    (daily_src["season"] == this_season)
+    & daily_src["cum_qty"].notna()
+    & daily_src["days_to_close"].notna()
+    & (daily_src["days_to_close"] >= -window_days)
 ].copy()
 
-# 3) This year PROJECTION — from proj_df (only from last actual onward)
+# 3) This year PROJECTION — from proj_df (ALL sources, only from last actual onward)
 last_actual_date = this_daily["sale_date"].max()
 dtc_today = this_daily.loc[
     this_daily["sale_date"] == last_actual_date, "days_to_close"
@@ -885,7 +871,7 @@ this_abs_proj = proj_df[
 # ----------------------------
 if city_mode == "Combined":
     hist_chart = alt.Chart(hist_abs).mark_line(opacity=0.35).encode(
-        x=alt.X("days_to_close:Q", title="Days to closing (Dec 24)"),
+        x=alt.X("days_to_close:Q", title="Days to closing (city-specific)"),
         y=alt.Y("cum_qty:Q", title="Cumulative tickets"),
         color=alt.Color("season:N", title="Historical seasons"),
         tooltip=["season", "city", "sale_date", "cum_qty"],
@@ -904,11 +890,11 @@ if city_mode == "Combined":
 
     cur_proj_line = alt.Chart(this_abs_proj).mark_line(
         size=2,
-        strokeDash=[4, 2],  # dashed
+        strokeDash=[4, 2],
     ).encode(
         x="days_to_close:Q",
         y="proj_cum_qty:Q",
-        color=alt.value("navy"),  # same color, no extra legend
+        color=alt.value("navy"),
         tooltip=["city", "season", "sale_date", "proj_cum_qty"],
     )
 
@@ -934,7 +920,7 @@ if city_mode == "Combined":
 # By-city view: one chart per city
 # ----------------------------
 else:
-    cities = sorted(daily["city"].dropna().unique().tolist())
+    cities = sorted(daily_src["city"].dropna().unique().tolist())
 
     for city in cities:
         st.markdown(f"### {city}")
@@ -944,7 +930,7 @@ else:
         this_proj_c = this_abs_proj[this_abs_proj["city"] == city]
 
         hist_chart_c = alt.Chart(hist_c).mark_line(opacity=0.35).encode(
-            x=alt.X("days_to_close:Q", title="Days to closing (Dec 24)"),
+            x=alt.X("days_to_close:Q", title="Days to closing"),
             y=alt.Y("cum_qty:Q", title="Cumulative tickets"),
             color=alt.Color("season:N", title="Historical seasons"),
             tooltip=["season", "city", "sale_date", "cum_qty"],
@@ -989,7 +975,6 @@ else:
         else:
             st.info(f"No data available yet for {city}.")
 
-
 # ----------------------------
 # Data table + download (this season by day)
 # ----------------------------
@@ -997,7 +982,6 @@ st.subheader("Projection by day (this season)")
 
 table_df = plot_proj[plot_proj["season"] == this_season].copy()
 
-# Column order (internal names)
 cols_order = [
     "season",
     "city",
@@ -1013,15 +997,14 @@ cols_order = [
 cols_order = [c for c in cols_order if c in table_df.columns]
 table_df = table_df[cols_order].sort_values(
     ["city", "sale_date"],
-    ascending=[True, False],  # city A–Z, newest dates first
+    ascending=[True, False],
 )
 
-# Lay-friendly headers (display + CSV only)
 pretty_cols = {
     "season": "Season",
     "city": "City",
     "sale_date": "Date",
-    "days_to_close": "Days to closing (Dec 24)",
+    "days_to_close": "Days to closing",
     "cum_qty": "Tickets sold so far",
     "proj_cum_qty": "Projected tickets",
     "proj_min_cum_qty": "Projection – low",
@@ -1048,8 +1031,7 @@ st.markdown(
     """
 **How projections work**  
 We compute an average **cumulative share curve** across your selected reference seasons (by city). 
-At today's *days to closing*, we read the mean share and divide current cumulative tickets by that share
-(e.g., if reference says 62% sold at −14 days to closing and you’re at 15,500, the shape-projected final is ~25,000).  
+At today's *days to closing*, we read the mean share and divide current cumulative tickets by that share.
 Where available, we also show a band using the min/max shares from reference seasons.
 
 **Normalizing for more shows**  
