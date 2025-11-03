@@ -102,7 +102,6 @@ def load_and_standardize_from_path(path: Path) -> pd.DataFrame:
             .replace({"nan": np.nan})
             .fillna("Combined")
         )
-        # optional strict mapping to avoid variants
         CITY_MAP = {
             "calgary": "Calgary",
             "edmonton": "Edmonton",
@@ -113,10 +112,9 @@ def load_and_standardize_from_path(path: Path) -> pd.DataFrame:
         df["city"] = df["city"].str.lower().map(CITY_MAP).fillna(df["city"])
     else:
         df["city"] = "Combined"
-    
+
     # Season: trim
     df["season"] = df["season"].astype(str).str.strip()
-
 
     df["sale_date"] = _coerce_dates(df, "sale_date")
     df["qty"] = pd.to_numeric(df["qty"], errors="coerce").fillna(0).astype(int)
@@ -125,9 +123,6 @@ def load_and_standardize_from_path(path: Path) -> pd.DataFrame:
     if "capacity" in df.columns:
         df["capacity"] = pd.to_numeric(df["capacity"], errors="coerce").astype("Float64")
 
-    df["season"] = df["season"].astype(str).str.strip()
-    if "city" not in df.columns:
-        df["city"] = "Combined"
     if "source" in df.columns:
         df["source"] = df["source"].fillna("Unknown").replace({"": "Unknown"})
 
@@ -176,7 +171,7 @@ def _season_to_closing_year(s: str) -> Optional[int]:
 def _extend_current_to_closing(daily: pd.DataFrame, this_season: str) -> pd.DataFrame:
     """
     Extend the current season to Dec 24 per city by adding daily rows with qty=0 (and revenue=0 if present).
-    Requires daily to already contain `closing_date`.
+    Critically: stamp `closing_date` onto these new rows to avoid NaNs later.
     """
     cur = daily[daily["season"] == this_season].copy()
     if cur.empty:
@@ -204,6 +199,7 @@ def _extend_current_to_closing(daily: pd.DataFrame, this_season: str) -> pd.Data
             "city":   [city] * n,
             "sale_date": future_days,
             "qty": np.zeros(n, dtype=int),
+            "closing_date": [close] * n,           # <<<<<<<<<<<<<<  IMPORTANT
         }
         if "revenue" in daily.columns:
             block["revenue"] = np.zeros(n, dtype=float)
@@ -559,6 +555,13 @@ ref_curve = _densify_ref_curve(ref_curve, daily)
 # Extend the current season to closing day so we can draw projections out to Dec 24
 daily_extended = _extend_current_to_closing(daily, this_season)
 
+# ---- Backfill closing_date on any new rows that might still be NaN (belt & suspenders) ----
+if daily_extended["closing_date"].isna().any():
+    daily_extended = (
+        daily_extended.drop(columns=["closing_date"])
+        .merge(run_meta[["season","city","closing_date"]], on=["season","city"], how="left")
+    )
+
 # Recompute cum fields & days_to_close on the extended frame
 daily_extended = daily_extended.sort_values(["season","city","sale_date"]).reset_index(drop=True)
 daily_extended["cum_qty"] = daily_extended.groupby(["season","city"])["qty"].cumsum()
@@ -566,13 +569,6 @@ if "revenue" in daily_extended.columns and daily_extended["revenue"].notna().any
     daily_extended["cum_rev"] = daily_extended.groupby(["season","city"])["revenue"].cumsum()
 else:
     daily_extended["cum_rev"] = np.nan
-
-# Make sure we have closing_date and (if needed) other meta
-if "closing_date" not in daily_extended.columns:
-    daily_extended = daily_extended.merge(
-        run_meta[["season","city","closing_date"]],
-        on=["season","city"], how="left"
-    )
 
 # Compute days_to_close exactly once here for the extended frame
 daily_extended["days_to_close"] = (
@@ -622,7 +618,6 @@ st.write({
     "daily_extended": sorted(daily_extended["city"].dropna().unique().tolist()),
     "ref_curve":      sorted(ref_curve["city"].dropna().unique().tolist()),
 })
-
 
 # Project on the extended data
 proj_df, summary_df = project_this_year(daily_extended, this_season, ref_curve, run_meta)
