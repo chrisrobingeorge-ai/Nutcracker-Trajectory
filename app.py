@@ -141,6 +141,46 @@ def _season_to_closing_year(s: str) -> Optional[int]:
         return int(m.group(1))
     return None
 
+def _extend_current_to_closing(daily: pd.DataFrame, run_meta: pd.DataFrame, this_season: str) -> pd.DataFrame:
+    """
+    For the current season, create future rows (one per calendar day) up to closing_date,
+    carrying season/city forward. These rows get qty=0; projections are computed later.
+    """
+    cur = daily[daily["season"] == this_season].copy()
+    if cur.empty:
+        return cur
+
+    # One closing_date per city for this season
+    meta = run_meta[run_meta["season"] == this_season][["city", "closing_date"]].drop_duplicates()
+
+    rows = []
+    for _, m in meta.iterrows():
+        city = m["city"]
+        close = pd.to_datetime(m["closing_date"]).normalize()
+
+        have = cur[cur["city"] == city]
+        if have.empty:
+            continue
+
+        last_dt = have["sale_date"].max().normalize()
+        if last_dt >= close:
+            continue
+
+        future_days = pd.date_range(start=last_dt + pd.Timedelta(days=1), end=close, freq="D")
+        if not len(future_days):
+            continue
+
+        f = pd.DataFrame({
+            "season": this_season,
+            "city": city,
+            "sale_date": future_days,
+            "qty": 0
+        })
+        rows.append(f)
+
+    fut = pd.concat(rows, ignore_index=True) if rows else pd.DataFrame(columns=["season","city","sale_date","qty"])
+    return pd.concat([cur, fut], ignore_index=True) if not fut.empty else cur
+
 def compute_calendar_refs(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
     # Build meta per (season,city) with Dec 24 closing
     meta = (
@@ -224,6 +264,51 @@ def build_reference_curve(daily: pd.DataFrame, seasons_ref: List[str]) -> pd.Dat
            .reset_index()
     )
     return agg
+
+def _densify_ref_curve(ref_curve: pd.DataFrame, daily: pd.DataFrame) -> pd.DataFrame:
+    """
+    Ensure we have a share value for every days_to_close per city, up to 0.
+    Fills gaps by interpolation; clips to [0,1]; enforces monotonic non-decreasing.
+    """
+    if ref_curve.empty:
+        return ref_curve
+
+    # Determine the global min days_to_close present in historical data (per city)
+    hist = daily[daily["share_of_final_qty"].notna()]
+    limits = (hist.groupby("city")["days_to_close"].agg(["min", "max"]).reset_index()
+                  .rename(columns={"min":"min_dtc","max":"max_dtc"}))
+    # We only project up to 0 (closing day)
+    limits["max_dtc"] = 0
+
+    out = []
+    for _, row in limits.iterrows():
+        city = row["city"]
+        g = ref_curve[ref_curve["city"] == city].copy()
+        if g.empty:
+            continue
+
+        # Build continuous index from earliest historical DTC to 0
+        idx = pd.Index(range(int(row["min_dtc"]), 1), name="days_to_close")
+        g = (g.set_index("days_to_close")
+               .reindex(idx)
+               .sort_index())
+
+        # Interpolate mean/min/max shares where missing
+        for col in ["mean_share", "min_share", "max_share", "mean_per_show"]:
+            if col in g.columns:
+                g[col] = g[col].interpolate(method="linear", limit_direction="both")
+
+        # Safety: clip to [0,1] and enforce monotonic non-decreasing on shares
+        for col in ["mean_share", "min_share", "max_share"]:
+            if col in g.columns:
+                g[col] = g[col].clip(lower=0.0, upper=1.0)
+                g[col] = g[col].cummax()
+
+        g = g.reset_index()
+        g["city"] = city
+        out.append(g)
+
+    return pd.concat(out, ignore_index=True) if out else ref_curve
 
 def project_this_year(
     daily: pd.DataFrame,
@@ -368,7 +453,31 @@ except Exception as e:
     st.error(f"Could not build reference curve: {e}")
     st.stop()
 
-proj_df, summary_df = project_this_year(daily, this_season, ref_curve, run_meta)
+# Build reference curve (already done above)
+# Densify so we have a share for every day up to 0 per city
+ref_curve = _densify_ref_curve(ref_curve, daily)
+
+# Extend the current season to closing day so we can draw projections out to Dec 24
+daily_extended = daily.copy()
+daily_extended = _extend_current_to_closing(daily_extended, run_meta, this_season)
+
+# Recompute cum fields & days_to_close on the extended frame
+daily_extended = daily_extended.sort_values(["season","city","sale_date"]).reset_index(drop=True)
+daily_extended["cum_qty"] = daily_extended.groupby(["season","city"])["qty"].cumsum()
+if "revenue" in daily_extended.columns and daily_extended["revenue"].notna().any():
+    daily_extended["cum_rev"] = daily_extended.groupby(["season","city"])["revenue"].cumsum()
+else:
+    daily_extended["cum_rev"] = np.nan
+
+# bring closing_date/num_shows/total_capacity back (for days_to_close and % capacity)
+daily_extended = daily_extended.merge(
+    run_meta[["season","city","closing_date","num_shows","total_capacity"]],
+    on=["season","city"], how="left"
+)
+daily_extended["days_to_close"] = (daily_extended["sale_date"].dt.normalize() - daily_extended["closing_date"]).dt.days
+
+# Now project on the extended data
+proj_df, summary_df = project_this_year(daily_extended, this_season, ref_curve, run_meta)
 
 # Trim plotting window
 plot_ref  = ref_curve[ref_curve["days_to_close"] >= -window_days].copy()
