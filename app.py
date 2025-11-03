@@ -366,6 +366,7 @@ def project_this_year(daily: pd.DataFrame,
                       this_season: str,
                       ref_curve: pd.DataFrame,
                       run_meta: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
+
     # Ensure integer-ish DTC for joins
     daily["days_to_close"]     = pd.to_numeric(daily["days_to_close"], downcast="integer", errors="coerce")
     ref_curve["days_to_close"] = pd.to_numeric(ref_curve["days_to_close"], downcast="integer", errors="coerce")
@@ -375,51 +376,73 @@ def project_this_year(daily: pd.DataFrame,
     cur = cur.merge(run_meta[["season","city","num_shows","total_capacity"]], on=["season","city"], how="left")
     cur = cur.merge(ref_curve, on=["city","days_to_close"], how="left")
 
-    proj_rows: List[pd.DataFrame] = []  # << fix: define the list before appending
+    # ---- NEW: compute the last actual-sale date per city (pre-extension) ----
+    this_raw = daily[(daily["season"] == this_season)].copy()
+    # “Actual” = rows that existed before we padded zeros; treat any qty>0 OR the max date before the flat pad as actual
+    last_actual_by_city = (
+        this_raw[this_raw["qty"] > 0]
+        .groupby("city")["sale_date"].max()
+        .rename("last_actual_date")
+    )
+
+    proj_rows: List[pd.DataFrame] = []
 
     for city, g in cur.groupby("city"):
-        g = g.sort_values("sale_date")
+        g = g.sort_values("sale_date").copy()
 
-        # Current cumulative tickets (today)
-        cum_qty_today = g["cum_qty"].dropna().iloc[-1] if g["cum_qty"].notna().any() else np.nan
-
-        # Forward-fill the reference mean share along the timeline so "today" has a value
-        if "mean_share" in g.columns:
-            g["mean_share_ffill"] = g["mean_share"].ffill()
-            ref_today_share = g["mean_share_ffill"].dropna().iloc[-1] if g["mean_share_ffill"].notna().any() else np.nan
+        # Anchor window = rows up to last actual sale for this city
+        last_actual = last_actual_by_city.get(city, pd.NaT)
+        if pd.isna(last_actual):
+            # fall back to max date in g that has any cum_qty
+            mask_anchor = g["cum_qty"].notna()
         else:
-            g["mean_share_ffill"] = np.nan
-            ref_today_share = np.nan
+            mask_anchor = g["sale_date"] <= last_actual
 
-        # Scale so that: projected_final_qty ≈ cum_qty_today / ref_today_share
+        g["mean_share_ffill"] = g["mean_share"].ffill()
+        g["min_share_ffill"]  = g["min_share"].ffill() if "min_share" in g.columns else np.nan
+        g["max_share_ffill"]  = g["max_share"].ffill() if "max_share" in g.columns else np.nan
+
+        # ---- scale from "today" (last actual) ----
+        if mask_anchor.any():
+            cum_qty_today = g.loc[mask_anchor, "cum_qty"].dropna().iloc[-1] if g.loc[mask_anchor, "cum_qty"].notna().any() else np.nan
+            ref_today_share = g.loc[mask_anchor, "mean_share_ffill"].dropna().iloc[-1] if g.loc[mask_anchor, "mean_share_ffill"].notna().any() else np.nan
+        else:
+            cum_qty_today, ref_today_share = np.nan, np.nan
+
         scale_qty = np.nan
         if pd.notna(ref_today_share) and ref_today_share > 0 and pd.notna(cum_qty_today):
             scale_qty = cum_qty_today / ref_today_share
 
-        # Ticket projections along the curve
-        for col in ("min_share", "max_share"):
-            if col in g.columns:
-                g[f"{col}_ffill"] = g[col].ffill()
-
+        # Ticket projections along full horizon (including future dates)
         g["proj_cum_qty"]     = g["mean_share_ffill"] * scale_qty if pd.notna(scale_qty) else np.nan
-        g["proj_min_cum_qty"] = g["min_share_ffill"]  * scale_qty if ("min_share_ffill" in g and pd.notna(scale_qty)) else np.nan
-        g["proj_max_cum_qty"] = g["max_share_ffill"]  * scale_qty if ("max_share_ffill" in g and pd.notna(scale_qty)) else np.nan
+        g["proj_min_cum_qty"] = g["min_share_ffill"]  * scale_qty if (pd.notna(scale_qty) and "min_share" in g.columns) else np.nan
+        g["proj_max_cum_qty"] = g["max_share_ffill"]  * scale_qty if (pd.notna(scale_qty) and "max_share" in g.columns) else np.nan
 
         # ---------- Revenue projection ----------
         if "cum_rev" in g.columns and g["cum_rev"].notna().any():
-            cum_rev_today = g["cum_rev"].dropna().iloc[-1]
+            if mask_anchor.any():
+                cum_rev_today = g.loc[mask_anchor, "cum_rev"].dropna().iloc[-1] if g.loc[mask_anchor, "cum_rev"].notna().any() else np.nan
+            else:
+                cum_rev_today = np.nan
 
             if "mean_rev_share" in g.columns and g["mean_rev_share"].notna().any():
                 g["mean_rev_share_ffill"] = g["mean_rev_share"].ffill()
-                ref_rev_share_today = g["mean_rev_share_ffill"].dropna().iloc[-1] if g["mean_rev_share_ffill"].notna().any() else np.nan
+                if mask_anchor.any():
+                    ref_rev_share_today = (
+                        g.loc[mask_anchor, "mean_rev_share_ffill"].dropna().iloc[-1]
+                        if g.loc[mask_anchor, "mean_rev_share_ffill"].notna().any()
+                        else np.nan
+                    )
+                else:
+                    ref_rev_share_today = np.nan
 
                 proj_final_rev_shape = np.nan
-                if pd.notna(ref_rev_share_today) and ref_rev_share_today > 0:
+                if pd.notna(ref_rev_share_today) and ref_rev_share_today > 0 and pd.notna(cum_rev_today):
                     proj_final_rev_shape = cum_rev_today / ref_rev_share_today
 
                 g["proj_cum_rev"] = g["mean_rev_share_ffill"] * proj_final_rev_shape if pd.notna(proj_final_rev_shape) else np.nan
             else:
-                # Fallback: average price-so-far × projected qty
+                # Fallback: avg price-so-far × projected qty (still anchored at last actual)
                 avg_price = (cum_rev_today / cum_qty_today) if (pd.notna(cum_rev_today) and pd.notna(cum_qty_today) and cum_qty_today > 0) else np.nan
                 g["proj_cum_rev"] = g["proj_cum_qty"] * avg_price if pd.notna(avg_price) else np.nan
         else:
@@ -429,16 +452,12 @@ def project_this_year(daily: pd.DataFrame,
 
     proj = pd.concat(proj_rows, ignore_index=True) if proj_rows else cur
 
-    # ---------- Summary (pick Dec 24 row explicitly) ----------
+    # ---------- Summary (prefer exact Dec 24 row; else max DTC) ----------
     summaries = []
     for city, g in proj.groupby("city"):
         g = g.sort_values("days_to_close")
-        # Prefer the exact Dec 24 row; otherwise fall back to the max DTC
         final_rows = g[g["days_to_close"] == 0]
-        if not final_rows.empty:
-            final_row = final_rows.iloc[0]
-        else:
-            final_row = g.loc[g["days_to_close"].idxmax()] if g["days_to_close"].notna().any() else None
+        final_row = final_rows.iloc[0] if not final_rows.empty else (g.loc[g["days_to_close"].idxmax()] if g["days_to_close"].notna().any() else None)
 
         cap_total = final_row["total_capacity"] if (final_row is not None and "total_capacity" in final_row) else np.nan
         proj_final_qty = final_row["proj_cum_qty"] if final_row is not None else np.nan
@@ -448,8 +467,7 @@ def project_this_year(daily: pd.DataFrame,
         current_cum_qty = g["cum_qty"].dropna().iloc[-1] if g["cum_qty"].notna().any() else np.nan
 
         summaries.append(dict(
-            season=this_season,
-            city=city,
+            season=this_season, city=city,
             current_cum_qty=current_cum_qty,
             projected_final_qty=proj_final_qty,
             projected_pct_capacity=pct_cap,
@@ -460,6 +478,7 @@ def project_this_year(daily: pd.DataFrame,
 
     summary_df = pd.DataFrame(summaries)
     return proj, summary_df
+
 
 # ----------------------------
 # Sidebar: data discovery (no uploads)
