@@ -315,6 +315,17 @@ with st.sidebar:
     city_mode = st.selectbox("City view", ["Combined", "By City"], index=0)
     show_revenue = st.checkbox("Include revenue curves when available", value=True)
 
+with st.sidebar:
+    st.header("2) Display")
+    window_days = st.slider(
+        "Window: show last N days before closing",
+        min_value=90, max_value=700, value=365, step=15
+    )
+    min_share_to_project = st.slider(
+        "Project only after ref share ≥",
+        min_value=0.05, max_value=0.90, value=0.20, step=0.05
+    )
+
 # Load CSVs from disk
 try:
     hist_parts = [load_and_standardize_from_path(p) for p in sel_hist_list]
@@ -358,6 +369,17 @@ except Exception as e:
     st.stop()
 
 proj_df, summary_df = project_this_year(daily, this_season, ref_curve, run_meta)
+
+# Trim plotting window
+plot_ref  = ref_curve[ref_curve["days_to_close"] >= -window_days].copy()
+plot_proj = proj_df[proj_df["days_to_close"] >= -window_days].copy()
+plot_hist = ref_daily[ref_daily["days_to_close"] >= -window_days].copy()
+plot_this = this_daily[this_daily["days_to_close"] >= -window_days].copy()
+
+# Gate projections until curve is meaningful
+if "mean_share" in plot_proj.columns:
+    too_early = plot_proj["mean_share"].notna() & (plot_proj["mean_share"] < min_share_to_project)
+    plot_proj.loc[too_early, ["proj_cum_qty", "proj_min_cum_qty", "proj_max_cum_qty"]] = np.nan
 
 # ----------------------------
 # Main layout
