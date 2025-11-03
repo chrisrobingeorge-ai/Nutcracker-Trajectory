@@ -5,29 +5,29 @@
 # - Normalize for different numbers of performances (and capacity if available)
 # - Project final sales using historical cumulative share curves
 # - Handle Calgary vs Edmonton (or combined) views
-# - Ready for Streamlit Cloud (single-file app)
+# - **Reads CSVs from a local `data/` folder in the repo** (no file uploads)
 #
 # Data expectations (CSV)
 # -----------------------
-# Historical (multi-year) CSV — required columns (case-insensitive, flexible names allowed):
+# Place CSVs in `data/` at the repo root. The app will auto-discover them.
+# You can either use fixed names:
+#   - `data/historical.csv`      (multi-year history)
+#   - `data/this_year.csv`       (this-season to date; exactly one season)
+# or use patterns (the app picks the most recent by modified time):
+#   - `data/historical_*.csv`
+#   - `data/this_year_*.csv`
+#
+# Required columns (case-insensitive, flexible names allowed):
 #   - season / year             : e.g., 2019, 2022-23, etc. (string or int)
 #   - order_date / sale_date    : date of ticket sale (YYYY-MM-DD)
-#   - performance_date          : date of performance (YYYY-MM-DD)
-#   - qty / tickets_sold        : integer quantity of tickets sold in that transaction/day
+#   - performance_date          : date of first performance (YYYY-MM-DD) for the Nutcracker run in that city
+#   - qty / tickets_sold        : integer quantity sold for that day
 # Optional columns:
 #   - city                      : 'Calgary' / 'Edmonton' (or any label)
-#   - performance_id            : identifier for a performance; if missing, unique performance_date is used
-#   - capacity / seats          : capacity of that performance (row-wise or merge-able); if missing, per-show normalization is used instead of per-seat
-#   - price / revenue           : if present, app will also compute revenue curves
+#   - performance_id            : identifier for a performance/run; if missing, unique performance_date is used
+#   - capacity / seats          : capacity (per perf or total run). If absent, per-show normalization is used.
+#   - revenue                   : enables revenue curves
 #   - channel                   : optional segmentation
-#
-# Current year CSV — same columns, but may be partial to date.
-#
-# NOTES
-# - If your historical file already aggregates daily totals per season, repeat the date in 'order_date' and keep 'qty' as the daily total.
-# - If you have per-transaction data, the app will aggregate by day.
-# - Capacity normalization (preferred) requires total capacity per season (sum of performance capacities). If not available,
-#   the app uses per-show normalization so seasons with more shows are comparable.
 #
 # -------------------------------------------------
 
@@ -53,20 +53,28 @@ st.set_page_config(
 
 st.title("🩰 Nutcracker Sales Trajectory Tracker")
 st.caption(
-    "Upload historical multi-year data and this year's to-date. Compare trajectories, normalize for show count/capacity, and project final totals."
+    "Reads CSVs from the repo's `data/` folder. Compare trajectories, normalize for show count/capacity, and project final totals."
 )
+
+# ----------------------------
+# Config: data folder & discovery
+# ----------------------------
+DATA_DIR = Path.cwd() / "data"
+HIST_FIXED = DATA_DIR / "historical.csv"
+THIS_FIXED = DATA_DIR / "this_year.csv"
+HIST_PATTERN = "historical_*.csv"
+THIS_PATTERN = "this_year_*.csv"
 
 # ----------------------------
 # Helpers
 # ----------------------------
-
 DATE_COL_CANDIDATES = ["order_date", "sale_date", "sales_date", "transaction_date"]
 PERF_DATE_CANDIDATES = ["performance_date", "perf_date", "show_date"]
 QTY_COL_CANDIDATES = ["qty", "tickets_sold", "units", "tickets"]
 SEASON_COL_CANDIDATES = ["season", "year"]
 CITY_COL_CANDIDATES = ["city", "market"]
 PERF_ID_CANDIDATES = ["performance_id", "perf_id", "show_id"]
-CAPACITY_COL_CANDIDATES = ["capacity", "seats", "house_capacity"]
+CAPACITY_COL_CANDIDATES = ["capacity", "seats", "house_capacity", "total_capacity"]
 REVENUE_COL_CANDIDATES = ["revenue", "gross", "amount"]
 
 
@@ -83,10 +91,10 @@ def _coerce_dates(df: pd.DataFrame, col: str) -> pd.Series:
 
 
 @st.cache_data(show_spinner=False)
-def load_and_standardize(csv_bytes: bytes) -> pd.DataFrame:
-    df = pd.read_csv(io.BytesIO(csv_bytes))
-    # Standardize column names to lower for detection but keep originals
-    colmap = {c: c for c in df.columns}
+def load_and_standardize_from_path(path: Path) -> pd.DataFrame:
+    if not path.exists():
+        raise FileNotFoundError(f"File not found: {path}")
+    df = pd.read_csv(path)
     lower = {c.lower(): c for c in df.columns}
 
     season_col = _find_col(list(lower.keys()), SEASON_COL_CANDIDATES)
@@ -107,7 +115,7 @@ def load_and_standardize(csv_bytes: bytes) -> pd.DataFrame:
             (QTY_COL_CANDIDATES, "qty/tickets_sold"),
         ] if _find_col(list(lower.keys()), cands) is None]
         raise ValueError(
-            "Missing required column(s): " + ", ".join(missing)
+            f"{path.name}: Missing required column(s): " + ", ".join(missing)
         )
 
     # Normalize core columns
@@ -146,7 +154,6 @@ def load_and_standardize(csv_bytes: bytes) -> pd.DataFrame:
 
 
 def aggregate_daily(df: pd.DataFrame) -> pd.DataFrame:
-    """Aggregate per season/city/day. Supports transaction-level input."""
     grp = df.groupby(["season", "city", "sale_date"], dropna=False, as_index=False).agg(
         qty=("qty", "sum"),
         revenue=("revenue", "sum") if "revenue" in df.columns else ("qty", "sum"),
@@ -155,8 +162,7 @@ def aggregate_daily(df: pd.DataFrame) -> pd.DataFrame:
     return grp
 
 
-def compute_calendar_refs(df: pd.DataFrame) -> pd.DataFrame:
-    """Attach opening_date, days_out (negative before opening) and show counts/capacity by season+city."""
+def compute_calendar_refs(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
     perf_info = (
         df.groupby(["season", "city", "performance_id"], dropna=False)
           .agg(opening_date=("performance_date", "min"),
@@ -172,7 +178,6 @@ def compute_calendar_refs(df: pd.DataFrame) -> pd.DataFrame:
     daily = aggregate_daily(df).merge(open_by_sc, on=["season", "city"], how="left")
     daily["days_out"] = (daily["sale_date"].dt.normalize() - daily["opening_date"]).dt.days
 
-    # Cumulative qty and revenue per season+city
     daily = daily.sort_values(["season", "city", "sale_date"]).reset_index(drop=True)
     daily["cum_qty"] = daily.groupby(["season", "city"], as_index=False)["qty"].cumsum()
     if "revenue" in daily.columns:
@@ -180,7 +185,6 @@ def compute_calendar_refs(df: pd.DataFrame) -> pd.DataFrame:
     else:
         daily["cum_rev"] = np.nan
 
-    # Totals per season+city (finals)
     finals = daily.groupby(["season", "city"], dropna=False).agg(
         final_qty=("qty", "sum"),
         final_rev=("revenue", "sum") if "revenue" in daily.columns else ("qty", "sum"),
@@ -188,11 +192,9 @@ def compute_calendar_refs(df: pd.DataFrame) -> pd.DataFrame:
 
     out = daily.merge(finals, on=["season", "city"], how="left")
 
-    # Normalizations
     out["per_show_cum_qty"] = out["cum_qty"] / out["num_shows"].replace(0, np.nan)
     out["share_of_final_qty"] = out["cum_qty"] / out["final_qty"].replace(0, np.nan)
 
-    # Capacity normalization (if total_capacity known)
     if "total_capacity" in out.columns:
         out["share_of_capacity"] = out["cum_qty"] / out["total_capacity"].replace(0, np.nan)
     else:
@@ -202,14 +204,12 @@ def compute_calendar_refs(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def build_reference_curve(daily: pd.DataFrame, seasons_ref: List[str]) -> pd.DataFrame:
-    """Average cumulative shares by days_out over selected reference seasons (per season+city)."""
     ref = daily[daily["season"].isin(seasons_ref)].copy()
     needed = ["season", "city", "days_out", "share_of_final_qty", "per_show_cum_qty"]
     missing = [c for c in needed if c not in ref.columns]
     if missing:
         raise ValueError(f"Missing columns for reference curve: {missing}")
 
-    # Compute mean and range across seasons for each city+days_out
     agg = (
         ref.groupby(["city", "days_out"], dropna=False)
            .agg(mean_share=("share_of_final_qty", "mean"),
@@ -226,48 +226,27 @@ def project_this_year(
     this_season: str,
     ref_curve: pd.DataFrame,
     open_meta: pd.DataFrame,
-    method: str = "capacity_or_shows",
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    """
-    Project final totals for this_season per city using a reference share curve.
-
-    method:
-      - "capacity_or_shows": prefer capacity normalization (share_of_capacity) if capacity exists; otherwise scale via per-show.
-    Returns (proj_points_by_day, summary_by_city)
-    """
     cur = daily[daily["season"] == this_season].copy()
-    cur = cur.merge(open_meta, on=["season", "city"], how="left", suffixes=("", ""))
+    cur = cur.merge(open_meta, on=["season", "city"], how="left")
 
-    # Today per city (latest sale_date row)
-    latest = cur.sort_values(["city", "sale_date"]).groupby("city").tail(1)
-
-    # Merge curve by days_out
     cur = cur.merge(ref_curve, on=["city", "days_out"], how="left")
 
-    # Compute projections at each day (per city)
     proj_rows = []
     for city, g in cur.groupby("city"):
         g = g.sort_values("sale_date")
-        # current values
         cum_qty_today = g["cum_qty"].iloc[-1]
-        num_shows = g["num_shows"].iloc[-1]
         cap_total = g["total_capacity"].iloc[-1] if "total_capacity" in g.columns else np.nan
-
-        # reference share at today (use last available mean_share)
         ref_today_share = g["mean_share"].dropna().iloc[-1] if g["mean_share"].notna().any() else np.nan
 
-        # Projection approaches
         proj_final_qty_shape = np.nan
         if pd.notna(ref_today_share) and ref_today_share > 0:
             proj_final_qty_shape = cum_qty_today / ref_today_share
 
-        # Capacity or per-show scaling is already baked into the share curve (share_of_final).
-        # If capacity exists, we can also compute projected % of capacity as a check.
         proj_pct_capacity = np.nan
         if pd.notna(cap_total) and cap_total > 0 and pd.notna(proj_final_qty_shape):
             proj_pct_capacity = proj_final_qty_shape / cap_total
 
-        # Build series of *expected* cumulative by day using the ref mean_share
         g["proj_cum_qty"] = g["mean_share"] * proj_final_qty_shape if pd.notna(proj_final_qty_shape) else np.nan
         g["proj_min_cum_qty"] = g["min_share"] * proj_final_qty_shape if pd.notna(proj_final_qty_shape) else np.nan
         g["proj_max_cum_qty"] = g["max_share"] * proj_final_qty_shape if pd.notna(proj_final_qty_shape) else np.nan
@@ -277,7 +256,6 @@ def project_this_year(
 
     proj = pd.concat(proj_rows, ignore_index=True) if proj_rows else cur
 
-    # Summaries per city
     summaries = []
     for city, g in proj.groupby("city"):
         row = dict(
@@ -294,41 +272,52 @@ def project_this_year(
     summary_df = pd.DataFrame(summaries)
     return proj, summary_df
 
-
 # ----------------------------
-# Sidebar — File inputs & Controls
+# Data discovery (no uploads)
 # ----------------------------
 with st.sidebar:
-    st.header("1) Upload data")
-    hist_file = st.file_uploader("Historical (multi-year) CSV", type=["csv"], key="hist")
-    this_file = st.file_uploader("This season (to-date) CSV", type=["csv"], key="this")
+    st.header("1) Data source: `data/` folder")
+    st.caption(str(DATA_DIR))
 
-    st.markdown("---")
-    st.header("2) Options")
+    if not DATA_DIR.exists():
+        st.error("`data/` folder not found at repo root. Create it and add CSVs.")
+        st.stop()
+
+    hist_candidates = []
+    if HIST_FIXED.exists(): hist_candidates.append(HIST_FIXED)
+    hist_candidates += sorted(DATA_DIR.glob(HIST_PATTERN))
+    this_candidates = []
+    if THIS_FIXED.exists(): this_candidates.append(THIS_FIXED)
+    this_candidates += sorted(DATA_DIR.glob(THIS_PATTERN))
+
+    if not hist_candidates:
+        st.error("No historical CSVs found. Add `historical.csv` or `historical_*.csv` in `data/`.")
+        st.stop()
+    if not this_candidates:
+        st.error("No this-season CSVs found. Add `this_year.csv` or `this_year_*.csv` in `data/`.")
+        st.stop()
+
+    hist_paths = {p.name: p for p in hist_candidates}
+    this_paths = {p.name: p for p in this_candidates}
+
+    sel_hist = st.selectbox("Historical CSV", options=list(hist_paths.keys()), index=len(hist_paths)-1)
+    sel_this = st.selectbox("This-year CSV", options=list(this_paths.keys()), index=len(this_paths)-1)
+
     default_city_mode = st.selectbox("City view", ["Combined", "By City"], index=0)
     show_revenue = st.checkbox("Include revenue curves when available", value=True)
 
-    st.markdown("---")
-    st.header("3) Reference seasons")
-    st.caption("Choose which historical seasons define the reference curve (average cumulative shares by day).")
-
-
-if not hist_file or not this_file:
-    st.info("⬅️ Upload both historical and this-season CSVs to begin.")
-    st.stop()
-
-# Load
+# Load CSVs from disk
 try:
-    hist_df = load_and_standardize(hist_file.read())
-    this_df = load_and_standardize(this_file.read())
+    hist_df = load_and_standardize_from_path(hist_paths[sel_hist])
+    this_df = load_and_standardize_from_path(this_paths[sel_this])
 except Exception as e:
-    st.error(f"Failed to read files: {e}")
+    st.error(f"Failed to read data files: {e}")
     st.stop()
 
-# Mark the current season label from uploaded 'this' file
+# Determine the current season label
 this_season_values = sorted(this_df["season"].unique().tolist())
 if len(this_season_values) != 1:
-    st.warning("Your 'this season' file should contain exactly one season value. Using the first found.")
+    st.warning("Your this-season file should contain exactly one season value. Using the first found.")
 this_season = this_season_values[0]
 
 # Combine data and compute references
@@ -341,7 +330,7 @@ if default_city_mode == "Combined":
 # Core calendar + cumulative metrics
 daily, open_meta = compute_calendar_refs(all_df)
 
-# Pick reference seasons in sidebar once we know season options
+# Sidebar: choose reference seasons (exclude current)
 with st.sidebar:
     seasons_all = sorted(daily["season"].unique().tolist())
     ref_default = [s for s in seasons_all if s != this_season]
@@ -368,17 +357,12 @@ proj_df, summary_df = project_this_year(daily, this_season, ref_curve, open_meta
 left, right = st.columns([2, 1])
 
 with left:
-    st.subheader("Trajectory vs. reference (tickets)")
-    # Trajectory chart (cumulative tickets)
-    base = alt.Chart(this_daily.dropna(subset=["days_out"]))
-
-    # Historical mean band
+    st.subheader("Reference share band (historical)")
     if not ref_curve.empty:
         band = alt.Chart(ref_curve).mark_area(opacity=0.2).encode(
             x=alt.X("days_out:Q", title="Days from opening (negative = before opening)"),
             y="min_share:Q",
             y2="max_share:Q",
-            color=alt.value("#888"),
             tooltip=["min_share", "max_share"],
         )
         mean_line = alt.Chart(ref_curve).mark_line(strokeDash=[4,2]).encode(
@@ -386,11 +370,10 @@ with left:
             y=alt.Y("mean_share:Q", title="Cumulative share of final"),
             tooltip=["mean_share"],
         )
-        st.altair_chart((band + mean_line).properties(height=260), use_container_width=True)
+        st.altair_chart((band + mean_line).properties(height=240), use_container_width=True)
 
-    # Actual vs projected cumulative tickets (absolute scale)
+    st.subheader("Actual vs projected cumulative tickets")
     abs_join = proj_df.dropna(subset=["days_out"]).copy()
-
     act = alt.Chart(abs_join).mark_line().encode(
         x=alt.X("days_out:Q", title="Days from opening"),
         y=alt.Y("cum_qty:Q", title="Cumulative tickets"),
@@ -403,12 +386,10 @@ with left:
         color=alt.Color("city:N", title="City"),
         tooltip=["city", "sale_date", "proj_cum_qty"],
     )
-    st.altair_chart((act + proj).properties(height=320), use_container_width=True)
+    st.altair_chart((act + proj).properties(height=300), use_container_width=True)
 
-    # Normalized per-show cumulative comparison (historical vs this year)
-    st.subheader("Normalized per-show cumulative (historical seasons)")
+    st.subheader("Normalized per-show cumulative (historical vs this year)")
     hist_norm = ref_daily.dropna(subset=["days_out"]).copy()
-    hist_norm["label"] = hist_norm["season"]
     lines_hist = alt.Chart(hist_norm).mark_line(opacity=0.35).encode(
         x=alt.X("days_out:Q", title="Days from opening"),
         y=alt.Y("per_show_cum_qty:Q", title="Cumulative tickets per show"),
@@ -423,7 +404,7 @@ with left:
         color=alt.Color("city:N", title="City"),
         tooltip=["city", "per_show_cum_qty"],
     )
-    st.altair_chart((lines_hist + line_this).properties(height=280), use_container_width=True)
+    st.altair_chart((lines_hist + line_this).properties(height=260), use_container_width=True)
 
     if show_revenue and ("cum_rev" in daily.columns) and daily["cum_rev"].notna().any():
         st.subheader("Revenue trajectory (if provided)")
@@ -434,7 +415,7 @@ with left:
             color=alt.Color("season:N", title="Season"),
             tooltip=["season", "city", "cum_rev"],
         )
-        st.altair_chart(rev_chart.properties(height=280), use_container_width=True)
+        st.altair_chart(rev_chart.properties(height=260), use_container_width=True)
 
 with right:
     st.subheader("Summary & projection")
@@ -474,11 +455,11 @@ Where available, we also show a band using the min/max shares from reference sea
 
 **Normalizing for more shows**  
 If capacity per performance is provided, we compute capacity-based metrics and show **% of capacity**. 
-If not, we normalize **per show** so seasons with 5 extra shows are comparable to seasons with fewer shows.
+If not, we normalize **per show** so seasons with more shows are comparable to seasons with fewer shows.
 
-**Tips**  
-- Ensure this-year CSV contains only one season label.  
-- Include `performance_id` and `capacity` to enable the most accurate capacity normalization.  
-- Use the city switch in the sidebar to compare Calgary vs Edmonton or a Combined view.
+**`data/` usage**  
+- Put your files in `data/` at repo root.
+- Use fixed names (`historical.csv`, `this_year.csv`) or date-stamped patterns (`historical_2022-2024.csv`, `this_year_2025_2025-11-02.csv`).
+- The sidebar lets you pick which files to use when multiple matches exist.
 """
 )
