@@ -700,8 +700,6 @@ else:
 # ----------------------------
 st.subheader("Projection by day (this season)")
 
-st.subheader("Projection by day (this season)")
-
 table_df = plot_proj[plot_proj["season"] == this_season].copy()
 
 # Column order (internal names)
