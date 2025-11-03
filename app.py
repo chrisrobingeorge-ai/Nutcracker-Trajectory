@@ -469,12 +469,31 @@ if "revenue" in daily_extended.columns and daily_extended["revenue"].notna().any
 else:
     daily_extended["cum_rev"] = np.nan
 
-# bring closing_date/num_shows/total_capacity back (for days_to_close and % capacity)
-daily_extended = daily_extended.merge(
-    run_meta[["season","city","closing_date","num_shows","total_capacity"]],
-    on=["season","city"], how="left"
-)
-daily_extended["days_to_close"] = (daily_extended["sale_date"].dt.normalize() - daily_extended["closing_date"]).dt.days
+# ---- SAFE MERGE: add missing meta without duplicating closing_date ----
+# We already got closing_date into `daily` inside compute_calendar_refs,
+# but the extended frame may need num_shows/total_capacity. Only merge what’s missing.
+need_cols = [c for c in ["num_shows", "total_capacity"] if c not in daily_extended.columns]
+
+if need_cols:
+    daily_extended = daily_extended.merge(
+        run_meta[["season", "city"] + need_cols],
+        on=["season", "city"],
+        how="left",
+    )
+
+# If closing_date is not present (shouldn't happen), fetch it once — this avoids _x/_y suffixes.
+if "closing_date" not in daily_extended.columns:
+    daily_extended = daily_extended.merge(
+        run_meta[["season", "city", "closing_date"]],
+        on=["season", "city"],
+        how="left",
+    )
+
+# Compute days_to_close exactly once here for the extended frame
+daily_extended["days_to_close"] = (
+    daily_extended["sale_date"].dt.normalize() - daily_extended["closing_date"]
+).dt.days
+
 
 # Now project on the extended data
 proj_df, summary_df = project_this_year(daily_extended, this_season, ref_curve, run_meta)
