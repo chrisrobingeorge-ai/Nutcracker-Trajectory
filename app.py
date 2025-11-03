@@ -237,21 +237,19 @@ def compute_calendar_refs(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]
     return out, out_meta
 
 def build_reference_curve(daily: pd.DataFrame, seasons_ref: List[str]) -> pd.DataFrame:
-    """
-    Build a reference 'cumulative share of final' curve by days_to_close,
-    averaged across the selected reference seasons, per city.
-    """
     if not seasons_ref:
-        return pd.DataFrame(columns=["city","days_to_close","mean_share","min_share","max_share","mean_per_show"])
+        return pd.DataFrame(columns=[
+            "city","days_to_close","mean_share","min_share","max_share",
+            "mean_per_show","mean_rev_share","min_rev_share","max_rev_share"
+        ])
 
     ref = daily[daily["season"].isin(seasons_ref)].copy()
-    needed = ["season", "city", "days_to_close", "share_of_final_qty", "per_show_cum_qty"]
-    missing = [c for c in needed if c not in ref.columns]
-    if missing:
-        raise ValueError(f"Missing columns for reference curve: {missing}")
 
-    if ref.empty:
-        return pd.DataFrame(columns=["city","days_to_close","mean_share","min_share","max_share","mean_per_show"])
+    # Compute revenue share if we have rev
+    if "cum_rev" in ref.columns and "final_rev" in ref.columns and ref["final_rev"].notna().any():
+        ref["share_of_final_rev"] = ref["cum_rev"] / ref["final_rev"].replace(0, np.nan)
+    else:
+        ref["share_of_final_rev"] = np.nan
 
     agg = (
         ref.groupby(["city", "days_to_close"], dropna=False)
@@ -260,6 +258,9 @@ def build_reference_curve(daily: pd.DataFrame, seasons_ref: List[str]) -> pd.Dat
                min_share=("share_of_final_qty", "min"),
                max_share=("share_of_final_qty", "max"),
                mean_per_show=("per_show_cum_qty", "mean"),
+               mean_rev_share=("share_of_final_rev", "mean"),
+               min_rev_share=("share_of_final_rev", "min"),
+               max_rev_share=("share_of_final_rev", "max"),
            )
            .reset_index()
     )
@@ -324,37 +325,59 @@ def project_this_year(
     cur = cur.merge(run_meta[["season","city","num_shows","total_capacity"]], on=["season","city"], how="left")
     cur = cur.merge(ref_curve, on=["city", "days_to_close"], how="left")
 
-
+    # After merging ref_curve, compute projections:
     proj_rows = []
     for city, g in cur.groupby("city"):
         g = g.sort_values("sale_date")
+
+        # Quantity projection
         cum_qty_today = g["cum_qty"].iloc[-1] if len(g) else np.nan
-        cap_total = g["total_capacity"].iloc[-1] if "total_capacity" in g.columns else np.nan
         ref_today_share = g["mean_share"].dropna().iloc[-1] if g["mean_share"].notna().any() else np.nan
 
         proj_final_qty_shape = np.nan
         if pd.notna(ref_today_share) and ref_today_share > 0:
             proj_final_qty_shape = cum_qty_today / ref_today_share
 
-        g["proj_cum_qty"] = g["mean_share"] * proj_final_qty_shape if pd.notna(proj_final_qty_shape) else np.nan
-        g["proj_min_cum_qty"] = g["min_share"] * proj_final_qty_shape if pd.notna(proj_final_qty_shape) else np.nan
-        g["proj_max_cum_qty"] = g["max_share"] * proj_final_qty_shape if pd.notna(proj_final_qty_shape) else np.nan
+        g["proj_cum_qty"]     = g["mean_share"] * proj_final_qty_shape if pd.notna(proj_final_qty_shape) else np.nan
+        g["proj_min_cum_qty"] = g["min_share"]  * proj_final_qty_shape if pd.notna(proj_final_qty_shape) else np.nan
+        g["proj_max_cum_qty"] = g["max_share"]  * proj_final_qty_shape if pd.notna(proj_final_qty_shape) else np.nan
+
+        # Revenue projection:
+        # Prefer a revenue share curve; otherwise use current avg price × projected qty.
+        if "cum_rev" in g.columns and g["cum_rev"].notna().any():
+            cum_rev_today = g["cum_rev"].dropna().iloc[-1]
+            # If we have rev shares from ref_curve:
+            if "mean_rev_share" in g.columns and g["mean_rev_share"].notna().any():
+                ref_rev_share_today = g["mean_rev_share"].dropna().iloc[-1]
+                proj_final_rev_shape = np.nan
+                if pd.notna(ref_rev_share_today) and ref_rev_share_today > 0:
+                    proj_final_rev_shape = cum_rev_today / ref_rev_share_today
+                g["proj_cum_rev"] = g["mean_rev_share"] * proj_final_rev_shape if pd.notna(proj_final_rev_shape) else np.nan
+            else:
+                # Fallback: avg price so far × projected qty
+                avg_price = (cum_rev_today / cum_qty_today) if (pd.notna(cum_rev_today) and pd.notna(cum_qty_today) and cum_qty_today > 0) else np.nan
+                g["proj_cum_rev"] = g["proj_cum_qty"] * avg_price if pd.notna(avg_price) else np.nan
+        else:
+            g["proj_cum_rev"] = np.nan
 
         proj_rows.append(g)
 
     proj = pd.concat(proj_rows, ignore_index=True) if proj_rows else cur
 
+    # Summary
     summaries = []
     for city, g in proj.groupby("city"):
         cap_total = g["total_capacity"].iloc[-1] if "total_capacity" in g.columns else np.nan
-        proj_final = g["proj_cum_qty"].dropna().iloc[-1] if g["proj_cum_qty"].notna().any() else np.nan
-        pct_cap = (proj_final / cap_total) if (pd.notna(proj_final) and pd.notna(cap_total) and cap_total > 0) else np.nan
+        proj_final_qty = g["proj_cum_qty"].dropna().iloc[-1] if g["proj_cum_qty"].notna().any() else np.nan
+        proj_final_rev = g["proj_cum_rev"].dropna().iloc[-1] if "proj_cum_rev"].notna().any() else np.nan
+        pct_cap = (proj_final_qty / cap_total) if (pd.notna(proj_final_qty) and pd.notna(cap_total) and cap_total > 0) else np.nan
+
         row = dict(
-            season=this_season,
-            city=city,
+            season=this_season, city=city,
             current_cum_qty=g["cum_qty"].iloc[-1] if len(g) else np.nan,
-            projected_final_qty=proj_final,
+            projected_final_qty=proj_final_qty,
             projected_pct_capacity=pct_cap,
+            projected_final_revenue=proj_final_rev,
             num_shows=g["num_shows"].iloc[-1] if "num_shows" in g.columns else np.nan,
             total_capacity=cap_total,
         )
@@ -580,19 +603,27 @@ with left:
     else:
         st.info("Per-show normalization requires `num_shows` to be known. Otherwise this chart will be empty.")
 
-    if show_revenue and ("cum_rev" in daily.columns) and daily["cum_rev"].notna().any():
-        st.subheader("Revenue trajectory (if provided)")
-        rev = daily.dropna(subset=["days_to_close","cum_rev"])
-        if not rev.empty:
-            rev_chart = alt.Chart(rev).mark_line().encode(
-                x=alt.X("days_to_close:Q", title="Days to closing (Dec 24)"),
-                y=alt.Y("cum_rev:Q", title="Cumulative revenue"),
-                color=alt.Color("season:N", title="Season"),
-                tooltip=["season","city","sale_date","cum_rev"],
-            )
-            st.altair_chart(rev_chart.properties(height=260), use_container_width=True)
-        else:
-            st.info("No revenue values to plot.")
+if show_revenue and ("cum_rev" in daily.columns) and daily["cum_rev"].notna().any():
+    st.subheader("Revenue trajectory (with projection when possible)")
+    rev_hist = daily.dropna(subset=["days_to_close","cum_rev"]).copy()
+    hist_chart = alt.Chart(rev_hist[rev_hist["season"] != this_season]).mark_line(opacity=0.4).encode(
+        x=alt.X("days_to_close:Q", title="Days to closing (Dec 24)"),
+        y=alt.Y("cum_rev:Q", title="Cumulative revenue"),
+        color=alt.Color("season:N", title="Season"),
+        tooltip=["season","city","sale_date","cum_rev"],
+    )
+    cur_rev = proj_df[(proj_df["season"] == this_season) & proj_df["cum_rev"].notna()]
+    cur_line = alt.Chart(cur_rev).mark_line(size=3).encode(
+        x="days_to_close:Q", y="cum_rev:Q", color=alt.Color("city:N", title="City"),
+        tooltip=["city","sale_date","cum_rev"]
+    )
+    cur_proj = proj_df[(proj_df["season"] == this_season) & proj_df["proj_cum_rev"].notna()]
+    cur_proj_line = alt.Chart(cur_proj).mark_line(strokeDash=[4,2]).encode(
+        x="days_to_close:Q", y="proj_cum_rev:Q", color=alt.Color("city:N", title="City"),
+        tooltip=["city","sale_date","proj_cum_rev"]
+    )
+    st.altair_chart((hist_chart + cur_line + cur_proj_line).properties(height=260), use_container_width=True)
+
 with right:
     st.subheader("Summary & projection")
     if not summary_df.empty:
