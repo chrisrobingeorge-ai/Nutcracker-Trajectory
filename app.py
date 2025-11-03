@@ -141,44 +141,48 @@ def _season_to_closing_year(s: str) -> Optional[int]:
         return int(m.group(1))
     return None
 
-def _extend_current_to_closing(daily: pd.DataFrame, run_meta: pd.DataFrame, this_season: str) -> pd.DataFrame:
+def _extend_current_to_closing(daily: pd.DataFrame, this_season: str) -> pd.DataFrame:
     """
     For the current season, create future rows (one per calendar day) up to closing_date,
-    carrying season/city forward. These rows get qty=0; projections are computed later.
+    carrying season/city forward. These rows get qty=0 (and revenue=0 if present).
+    We read closing_date directly from `daily` to avoid merge/typing mismatches.
     """
     cur = daily[daily["season"] == this_season].copy()
     if cur.empty:
         return cur
 
-    meta = run_meta[run_meta["season"] == this_season][["city", "closing_date"]].drop_duplicates()
+    needed_cols = ["season", "city", "sale_date", "closing_date"]
+    missing = [c for c in needed_cols if c not in cur.columns]
+    if missing:
+        raise ValueError(f"_extend_current_to_closing: missing columns in daily: {missing}")
 
     rows = []
-    for _, m in meta.iterrows():
-        city = m["city"]
-        close = pd.to_datetime(m["closing_date"]).normalize()
-
-        have = cur[cur["city"] == city]
-        if have.empty:
-            continue
-
-        last_dt = have["sale_date"].max().normalize()
-        if last_dt >= close:
-            continue
-
-        future_days = pd.date_range(start=last_dt + pd.Timedelta(days=1), end=close, freq="D")
-        if not len(future_days):
-            continue
-
-        f = pd.DataFrame({
-            "season": this_season,
-            "city": city,
-            "sale_date": future_days,
-            "qty": 0
-        })
-        rows.append(f)
+    for city, g in cur.groupby("city"):
+        close = pd.to_datetime(g["closing_date"].iloc[0]).normalize()
+        last_dt = pd.to_datetime(g["sale_date"].max()).normalize()
+        if last_dt < close:
+            future_days = pd.date_range(start=last_dt + pd.Timedelta(days=1), end=close, freq="D")
+            base = {
+                "season": this_season,
+                "city": city,
+                "qty": 0,
+            }
+            if "revenue" in daily.columns:
+                base["revenue"] = 0.0
+            # If you carry capacity/num_shows per (season,city), we’ll merge later as before
+            f = pd.DataFrame(base).reindex(range(len(future_days)))
+            f["sale_date"] = future_days
+            rows.append(f)
 
     fut = pd.concat(rows, ignore_index=True) if rows else pd.DataFrame(columns=["season","city","sale_date","qty"])
-    return pd.concat([cur, fut], ignore_index=True) if not fut.empty else cur
+    # If nothing to add, just return the original
+    if fut.empty:
+        return cur
+
+    out = pd.concat([daily, fut], ignore_index=True)
+    out = out.sort_values(["season","city","sale_date"]).reset_index(drop=True)
+    return out
+
 
 def compute_calendar_refs(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
     # Build meta per (season,city) with Dec 24 closing
@@ -496,8 +500,7 @@ except Exception as e:
 ref_curve = _densify_ref_curve(ref_curve, daily)
 
 # Extend the current season to closing day so we can draw projections out to Dec 24
-daily_extended = daily.copy()
-daily_extended = _extend_current_to_closing(daily_extended, run_meta, this_season)
+daily_extended = _extend_current_to_closing(daily, this_season)
 
 # Recompute cum fields & days_to_close on the extended frame
 daily_extended = daily_extended.sort_values(["season","city","sale_date"]).reset_index(drop=True)
@@ -507,21 +510,11 @@ if "revenue" in daily_extended.columns and daily_extended["revenue"].notna().any
 else:
     daily_extended["cum_rev"] = np.nan
 
-# Add any missing meta (num_shows, total_capacity)
-need_cols = [c for c in ["num_shows", "total_capacity"] if c not in daily_extended.columns]
-if need_cols:
-    daily_extended = daily_extended.merge(
-        run_meta[["season", "city"] + need_cols],
-        on=["season", "city"],
-        how="left",
-    )
-
-# If closing_date is not present (shouldn't happen), fetch it once
+# Make sure we have closing_date and (if needed) other meta
 if "closing_date" not in daily_extended.columns:
     daily_extended = daily_extended.merge(
-        run_meta[["season", "city", "closing_date"]],
-        on=["season", "city"],
-        how="left",
+        run_meta[["season","city","closing_date"]],
+        on=["season","city"], how="left"
     )
 
 # Compute days_to_close exactly once here for the extended frame
@@ -529,21 +522,54 @@ daily_extended["days_to_close"] = (
     daily_extended["sale_date"].dt.normalize() - daily_extended["closing_date"]
 ).dt.days
 
-# Ensure join key types match (int) to avoid NaN merges
+# Normalize join key dtypes for the ref merge later
 daily_extended["days_to_close"] = pd.to_numeric(daily_extended["days_to_close"], downcast="integer", errors="coerce")
 ref_curve["days_to_close"]      = pd.to_numeric(ref_curve["days_to_close"],      downcast="integer", errors="coerce")
 
 # 🔎 DEBUG — sanity checks
 dbg = daily_extended[daily_extended["season"] == this_season].copy()
-dbg_tail = dbg.sort_values(["city","sale_date"]).groupby("city").tail(5)
-st.caption("🔎 Sanity — last 5 dates per city after extension")
+
+# Show last 5 rows per city (after extension)
+dbg_tail = (
+    dbg.sort_values(["city", "sale_date"])
+       .groupby("city", as_index=False)
+       .tail(5)
+)
+
+# Max DTC should be 0 for every city after extension
+last_dtc = dbg.groupby("city")["days_to_close"].max().sort_index().to_dict()
+st.caption("🔎 After extension, max days_to_close per city (should be 0)")
+st.json(last_dtc)
+
+# Any missing closing_date? (would block extension)
+missing_close = (
+    dbg[dbg["closing_date"].isna()][["season","city"]]
+    .drop_duplicates()
+    .sort_values(["season","city"])
+)
+if not missing_close.empty:
+    st.error("⚠️ Missing closing_date for these (season, city) pairs — extension cannot run:")
+    st.dataframe(missing_close, use_container_width=True)
+
+# Peek at the tail rows to confirm we actually reached Dec 24 (days_to_close == 0)
+st.caption("🔎 Tail rows per city after extension")
 st.dataframe(dbg_tail[["season","city","sale_date","days_to_close","cum_qty"]], use_container_width=True)
 
+# Reference curve coverage: do we have shares all the way to 0?
 st.caption("🔎 Ref curve coverage (min→max days_to_close) per city")
-st.dataframe(
-    ref_curve.groupby("city")["days_to_close"].agg(["min","max"]).reset_index(),
-    use_container_width=True
+ref_span = (
+    ref_curve.groupby("city")["days_to_close"].agg(["min","max"]).reset_index()
+             .sort_values("city")
 )
+st.dataframe(ref_span, use_container_width=True)
+
+# Also helpful to ensure city labels align across frames
+st.caption("🔎 City labels present")
+st.write({
+    "daily_extended": sorted(daily_extended["city"].dropna().unique().tolist()),
+    "ref_curve":      sorted(ref_curve["city"].dropna().unique().tolist()),
+})
+
 
 # Project on the extended data
 proj_df, summary_df = project_this_year(daily_extended, this_season, ref_curve, run_meta)
