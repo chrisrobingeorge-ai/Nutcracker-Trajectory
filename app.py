@@ -67,17 +67,16 @@ HIST_PATTERN = "historical_*.csv"
 THIS_PATTERN = "this_year_*.csv"
 
 # ----------------------------
-# Helpers
+# Helpers (closing-date; no opening-date dependency)
 # ----------------------------
-DATE_COL_CANDIDATES = ["order_date", "sale_date", "sales_date", "transaction_date"]
-PERF_DATE_CANDIDATES = ["performance_date", "perf_date", "show_date"]
-QTY_COL_CANDIDATES = ["qty", "tickets_sold", "units", "tickets"]
+DATE_COL_CANDIDATES = ["order_date", "sale_date", "sales_date", "transaction_date", "date"]
+QTY_COL_CANDIDATES  = ["qty", "tickets_sold", "units", "tickets", "tickets sold"]
 SEASON_COL_CANDIDATES = ["season", "year"]
-CITY_COL_CANDIDATES = ["city", "market"]
-PERF_ID_CANDIDATES = ["performance_id", "perf_id", "show_id"]
-CAPACITY_COL_CANDIDATES = ["capacity", "seats", "house_capacity", "total_capacity"]
-REVENUE_COL_CANDIDATES = ["revenue", "gross", "amount"]
-
+CITY_COL_CANDIDATES   = ["city", "market"]
+PERF_ID_CANDIDATES    = ["performance_id", "perf_id", "show_id"]  # optional
+CAPACITY_COL_CANDIDATES = ["capacity", "seats", "house_capacity", "total_capacity"]  # optional
+REVENUE_COL_CANDIDATES  = ["revenue", "gross", "amount"]  # optional
+SOURCE_COL_CANDIDATES   = ["source", "platform", "channel", "system"]  # optional (Ticketmaster/Archtics)
 
 def _find_col(cols: List[str], candidates: List[str]) -> Optional[str]:
     low = {c.lower(): c for c in cols}
@@ -90,7 +89,6 @@ def _find_col(cols: List[str], candidates: List[str]) -> Optional[str]:
 def _coerce_dates(df: pd.DataFrame, col: str) -> pd.Series:
     return pd.to_datetime(df[col], errors="coerce").dt.tz_localize(None)
 
-
 @st.cache_data(show_spinner=False)
 def load_and_standardize_from_path(path: Path) -> pd.DataFrame:
     if not path.exists():
@@ -99,62 +97,45 @@ def load_and_standardize_from_path(path: Path) -> pd.DataFrame:
     lower = {c.lower(): c for c in df.columns}
 
     season_col = _find_col(list(lower.keys()), SEASON_COL_CANDIDATES)
-    date_col = _find_col(list(lower.keys()), DATE_COL_CANDIDATES)
-    perf_col = _find_col(list(lower.keys()), PERF_DATE_CANDIDATES)
-    qty_col = _find_col(list(lower.keys()), QTY_COL_CANDIDATES)
-    city_col = _find_col(list(lower.keys()), CITY_COL_CANDIDATES)
-    perf_id_col = _find_col(list(lower.keys()), PERF_ID_CANDIDATES)
-    cap_col = _find_col(list(lower.keys()), CAPACITY_COL_CANDIDATES)
-    rev_col = _find_col(list(lower.keys()), REVENUE_COL_CANDIDATES)
-    src_col = _find_col(list(lower.keys()), SOURCE_COL_CANDIDATES)
-    # ...
-    if src_col: df = df.rename(columns={src_col: "source"})
-    # ...
-    if "source" in df.columns:
-        df["source"] = df["source"].fillna("Unknown").replace({"": "Unknown"})
-        required = [season_col, date_col, perf_col, qty_col]
-        if any(c is None for c in required):
-            missing = [name for cands, name in [
-                (SEASON_COL_CANDIDATES, "season/year"),
-                (DATE_COL_CANDIDATES, "order_date/sale_date"),
-                (PERF_DATE_CANDIDATES, "performance_date"),
-                (QTY_COL_CANDIDATES, "qty/tickets_sold"),
-            ] if _find_col(list(lower.keys()), cands) is None]
-            raise ValueError(
-                f"{path.name}: Missing required column(s): " + ", ".join(missing)
-            )
+    date_col   = _find_col(list(lower.keys()), DATE_COL_CANDIDATES)
+    qty_col    = _find_col(list(lower.keys()), QTY_COL_CANDIDATES)
+    city_col   = _find_col(list(lower.keys()), CITY_COL_CANDIDATES)
+    perf_id_col= _find_col(list(lower.keys()), PERF_ID_CANDIDATES)
+    cap_col    = _find_col(list(lower.keys()), CAPACITY_COL_CANDIDATES)
+    rev_col    = _find_col(list(lower.keys()), REVENUE_COL_CANDIDATES)
+    src_col    = _find_col(list(lower.keys()), SOURCE_COL_CANDIDATES)
 
-    # Normalize core columns
-    df = df.rename(columns={
-        season_col: "season",
-        date_col: "sale_date",
-        perf_col: "performance_date",
-        qty_col: "qty",
-    })
-    if city_col: df = df.rename(columns={city_col: "city"})
-    if perf_id_col: df = df.rename(columns={perf_id_col: "performance_id"})
-    if cap_col: df = df.rename(columns={cap_col: "capacity"})
-    if rev_col: df = df.rename(columns={rev_col: "revenue"})
+    # Required: season, sale date, qty (NO performance_date required)
+    missing = []
+    if season_col is None: missing.append("season/year")
+    if date_col   is None: missing.append("order_date/sale_date")
+    if qty_col    is None: missing.append("qty/tickets_sold")
+    if missing:
+        raise ValueError(f"{path.name}: Missing required column(s): " + ", ".join(missing))
+
+    # Rename core + optional
+    ren = {season_col: "season", date_col: "sale_date", qty_col: "qty"}
+    if city_col:     ren[city_col]     = "city"
+    if rev_col:      ren[rev_col]      = "revenue"
+    if cap_col:      ren[cap_col]      = "capacity"
+    if src_col:      ren[src_col]      = "source"
+    if perf_id_col:  ren[perf_id_col]  = "performance_id"
+    df = df.rename(columns=ren)
 
     # Types
     df["sale_date"] = _coerce_dates(df, "sale_date")
-    df["performance_date"] = _coerce_dates(df, "performance_date")
     df["qty"] = pd.to_numeric(df["qty"], errors="coerce").fillna(0).astype(int)
     if "revenue" in df.columns:
         df["revenue"] = pd.to_numeric(df["revenue"], errors="coerce").fillna(0.0)
     if "capacity" in df.columns:
-        df["capacity"] = pd.to_numeric(df["capacity"], errors="coerce").fillna(np.nan)
+        df["capacity"] = pd.to_numeric(df["capacity"], errors="coerce").astype("Float64")
 
-    # Clean season labels as strings
+    # Normalizations
     df["season"] = df["season"].astype(str).str.strip()
-
-    # Fallback performance_id
-    if "performance_id" not in df.columns:
-        df["performance_id"] = df["season"].astype(str) + "_" + df["performance_date"].dt.strftime("%Y-%m-%d")
-
-    # If no city, mark as Combined
     if "city" not in df.columns:
         df["city"] = "Combined"
+    if "source" in df.columns:
+        df["source"] = df["source"].fillna("Unknown").replace({"": "Unknown"})
 
     return df
 
@@ -168,31 +149,71 @@ def aggregate_daily(df: pd.DataFrame) -> pd.DataFrame:
     return grp
 
 
+def _season_to_closing_year(s: str) -> Optional[int]:
+    """
+    Robust-ish parser:
+    - '2025' -> 2025
+    - '2024-25' or '2024/25' -> 2025
+    - '2022–2023' (en dash) -> 2023
+    Returns None if we can't parse.
+    """
+    if not isinstance(s, str):
+        s = str(s)
+    s = s.strip()
+    import re
+    # 4-digit only
+    m = re.search(r"(20\d{2})$", s)
+    if m:
+        return int(m.group(1))
+    # Patterns like 2024-25, 2024/25, 2024–25
+    m = re.search(r"(20\d{2})\s*[-/–]\s*(\d{2,4})", s)
+    if m:
+        start = int(m.group(1))
+        tail = m.group(2)
+        if len(tail) == 2:
+            # 2024-25 -> 2025
+            return int(str(start)[:2] + tail)
+        elif len(tail) == 4:
+            return int(tail)
+    # Fallback: first 4-digit year in string
+    m = re.search(r"(20\d{2})", s)
+    if m:
+        return int(m.group(1))
+    return None
+
+
 def compute_calendar_refs(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    perf_info = (
-        df.groupby(["season", "city", "performance_id"], dropna=False)
-          .agg(opening_date=("performance_date", "min"),
-               perf_capacity=("capacity", "max"))
-          .reset_index()
+    # Derive closing_year from season string
+    meta = (
+        df[["season", "city"]].drop_duplicates()
+          .assign(closing_year=lambda x: x["season"].apply(_season_to_closing_year))
     )
-    open_by_sc = perf_info.groupby(["season", "city"], dropna=False).agg(
-        opening_date=("opening_date", "min"),
-        num_shows=("performance_id", "nunique"),
-        total_capacity=("perf_capacity", "sum")
-    ).reset_index()
+    if meta["closing_year"].isna().any():
+        bad = meta[meta["closing_year"].isna()]["season"].unique().tolist()
+        raise ValueError(f"Could not parse closing year from season labels: {bad}")
 
-    # Closing date is Dec 24 of the opening year for that season+city
-    open_by_sc["closing_date"] = pd.to_datetime(dict(
-        year=open_by_sc["opening_date"].dt.year,
-        month=12,
-        day=24
-    ))
+    meta["closing_date"] = pd.to_datetime(
+        dict(year=meta["closing_year"].astype(int), month=12, day=24)
+    )
 
-    daily = aggregate_daily(df).merge(open_by_sc, on=["season", "city"], how="left")
+    # Bring optional capacity/num_shows if present
+    out_meta = meta.copy()
+    if "capacity" in df.columns:
+        cap = (df.groupby(["season", "city"], dropna=False)["capacity"]
+                 .max().rename("total_capacity").reset_index())
+        out_meta = out_meta.merge(cap, on=["season", "city"], how="left")
+    if "num_shows" in df.columns:
+        ns = (df.groupby(["season", "city"], dropna=False)["num_shows"]
+                .max().reset_index())
+        out_meta = out_meta.merge(ns, on=["season", "city"], how="left")
 
-    # Days to closing (negative before Dec 24, zero on Dec 24)
+    # Aggregate daily sales
+    daily = aggregate_daily(df).merge(out_meta, on=["season", "city"], how="left")
+
+    # Days to closing: negative before Dec 24, zero on Dec 24
     daily["days_to_close"] = (daily["sale_date"].dt.normalize() - daily["closing_date"]).dt.days
 
+    # Cumulative
     daily = daily.sort_values(["season", "city", "sale_date"]).reset_index(drop=True)
     daily["cum_qty"] = daily.groupby(["season", "city"], as_index=False)["qty"].cumsum()
     if "revenue" in daily.columns:
@@ -207,15 +228,23 @@ def compute_calendar_refs(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]
 
     out = daily.merge(finals, on=["season", "city"], how="left")
 
-    out["per_show_cum_qty"] = out["cum_qty"] / out["num_shows"].replace(0, np.nan)
+    # Per-show normalization only if num_shows is known
+    if "num_shows" in out_meta.columns:
+        out = out.merge(out_meta[["season", "city", "num_shows"]], on=["season", "city"], how="left")
+        out["per_show_cum_qty"] = out["cum_qty"] / out["num_shows"].replace(0, np.nan)
+    else:
+        out["per_show_cum_qty"] = np.nan
+
     out["share_of_final_qty"] = out["cum_qty"] / out["final_qty"].replace(0, np.nan)
 
-    if "total_capacity" in out.columns:
+    if "total_capacity" in out_meta.columns:
+        out = out.merge(out_meta[["season", "city", "total_capacity"]], on=["season", "city"], how="left")
         out["share_of_capacity"] = out["cum_qty"] / out["total_capacity"].replace(0, np.nan)
     else:
+        out["total_capacity"] = np.nan
         out["share_of_capacity"] = np.nan
 
-    return out, open_by_sc
+    return out, out_meta
 
 
 def build_reference_curve(daily: pd.DataFrame, seasons_ref: List[str]) -> pd.DataFrame:
