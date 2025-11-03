@@ -699,7 +699,7 @@ with left:
         color=alt.Color("season:N", title="Historical season"),
         tooltip=["season", "city", "sale_date", "cum_qty"],
     )
-    
+
 # 2) This year ACTUALS — from non-extended frame (stops at last real sale)
 this_abs_actual = this_daily[
     this_daily["cum_qty"].notna()
@@ -707,22 +707,9 @@ this_abs_actual = this_daily[
     & (this_daily["days_to_close"] >= -window_days)
 ].copy()
 
-cur_actual_line = alt.Chart(this_abs_actual).mark_line(size=3).encode(
-    x="days_to_close:Q",
-    y=alt.Y("cum_qty:Q", title="Cumulative tickets"),
-    color=alt.Color(
-        "season:N",
-        scale=alt.Scale(domain=[this_season], range=["navy"]),
-        legend=alt.Legend(title="This season"),
-    ),
-    tooltip=["city", "season", "sale_date", "cum_qty"],
-)
-
-# 3) This year PROJECTION — from proj_df (only from last actual onward), NO legend
+# 3) This year PROJECTION — from proj_df (only from last actual onward)
 last_actual_date = this_daily["sale_date"].max()
-dtc_today = this_daily.loc[
-    this_daily["sale_date"] == last_actual_date, "days_to_close"
-].iloc[0]
+dtc_today = this_daily.loc[this_daily["sale_date"] == last_actual_date, "days_to_close"].iloc[0]
 
 this_abs_proj = proj_df[
     (proj_df["season"] == this_season)
@@ -732,24 +719,45 @@ this_abs_proj = proj_df[
     & (proj_df["days_to_close"] >= -window_days)
 ].copy()
 
-cur_proj_line = alt.Chart(this_abs_proj).mark_line(
-    size=2,
-    strokeDash=[4, 2],  # dashed
-).encode(
-    x="days_to_close:Q",
-    y="proj_cum_qty:Q",
-    color=alt.value("navy"),  # fixed color ⇒ no legend entry
-    tooltip=["city", "season", "sale_date", "proj_cum_qty"],
+# Combine current-season actual + projected into one frame with a "series" flag
+cur_actual = this_abs_actual.assign(
+    series=f"{this_season} actual",
+    value=this_abs_actual["cum_qty"],
+)
+cur_proj = this_abs_proj.assign(
+    series=f"{this_season} projected",
+    value=this_abs_proj["proj_cum_qty"],
 )
 
-# Layer everything
+cur_all = pd.concat([cur_actual, cur_proj], ignore_index=True)
+
+cur_lines = alt.Chart(cur_all).mark_line(size=3).encode(
+    x="days_to_close:Q",
+    y=alt.Y("value:Q", title="Cumulative tickets"),
+    color=alt.Color(
+        "series:N",
+        scale=alt.Scale(
+            domain=[f"{this_season} actual", f"{this_season} projected"],
+            range=["navy", "navy"],
+        ),
+        legend=alt.Legend(title="This season"),
+    ),
+    strokeDash=alt.StrokeDash(
+        "series:N",
+        scale=alt.Scale(
+            domain=[f"{this_season} actual", f"{this_season} projected"],
+            range=[[1, 0], [4, 2]],   # solid, dashed
+        ),
+        legend=None,
+    ),
+    tooltip=["city", "season", "series", "sale_date", "value"],
+)
+
 layers = []
 if not hist_abs.empty:
     layers.append(hist_chart)
-if not this_abs_actual.empty:
-    layers.append(cur_actual_line)
-if not this_abs_proj.empty:
-    layers.append(cur_proj_line)
+if not cur_all.empty:
+    layers.append(cur_lines)
 
 if layers:
     chart = alt.layer(*layers).properties(height=300)
