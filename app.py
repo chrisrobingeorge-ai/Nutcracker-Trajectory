@@ -726,12 +726,12 @@ pretty_cols = {
     "city": "City",
     "sale_date": "Date",
     "days_to_close": "Days to closing (Dec 24)",
-    "cum_qty": "Tickets sold so far (cum.)",
-    "proj_cum_qty": "Projected tickets (cum.)",
-    "proj_min_cum_qty": "Projection – low (cum.)",
-    "proj_max_cum_qty": "Projection – high (cum.)",
-    "cum_rev": "Revenue so far (cum.)",
-    "proj_cum_rev": "Projected revenue (cum.)",
+    "cum_qty": "Tickets sold so far",
+    "proj_cum_qty": "Projected tickets",
+    "proj_min_cum_qty": "Projection – low",
+    "proj_max_cum_qty": "Projection – high",
+    "cum_rev": "Revenue so far",
+    "proj_cum_rev": "Projected revenue",
 }
 
 display_df = table_df.rename(columns=pretty_cols)
