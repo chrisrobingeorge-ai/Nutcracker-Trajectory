@@ -522,10 +522,6 @@ daily_extended["days_to_close"] = (
     daily_extended["sale_date"].dt.normalize() - daily_extended["closing_date"]
 ).dt.days
 
-# Normalize join key dtypes for the ref merge later
-daily_extended["days_to_close"] = pd.to_numeric(daily_extended["days_to_close"], downcast="integer", errors="coerce")
-ref_curve["days_to_close"]      = pd.to_numeric(ref_curve["days_to_close"],      downcast="integer", errors="coerce")
-
 # 🔎 DEBUG — sanity checks
 dbg = daily_extended[daily_extended["season"] == this_season].copy()
 
