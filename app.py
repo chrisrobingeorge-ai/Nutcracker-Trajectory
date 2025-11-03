@@ -699,7 +699,7 @@ with left:
         color=alt.Color("season:N", title="Historical season"),
         tooltip=["season", "city", "sale_date", "cum_qty"],
     )
-
+    
 # 2) This year ACTUALS — from non-extended frame (stops at last real sale)
 this_abs_actual = this_daily[
     this_daily["cum_qty"].notna()
@@ -720,14 +720,8 @@ this_abs_proj = proj_df[
 ].copy()
 
 # Combine current-season actual + projected into one frame with a "series" flag
-cur_actual = this_abs_actual.assign(
-    series=f"{this_season} actual",
-    value=this_abs_actual["cum_qty"],
-)
-cur_proj = this_abs_proj.assign(
-    series=f"{this_season} projected",
-    value=this_abs_proj["proj_cum_qty"],
-)
+cur_actual = this_abs_actual.assign(series=f"{this_season} actual", value=this_abs_actual["cum_qty"])
+cur_proj   = this_abs_proj.assign(series=f"{this_season} projected", value=this_abs_proj["proj_cum_qty"])
 
 cur_all = pd.concat([cur_actual, cur_proj], ignore_index=True)
 
@@ -748,22 +742,22 @@ cur_lines = alt.Chart(cur_all).mark_line(size=3).encode(
             domain=[f"{this_season} actual", f"{this_season} projected"],
             range=[[1, 0], [4, 2]],   # solid, dashed
         ),
-        legend=None,
+        legend=None,  # color legend already titled; dash shows in swatch
     ),
     tooltip=["city", "season", "series", "sale_date", "value"],
 )
-
-layers = []
-if not hist_abs.empty:
-    layers.append(hist_chart)
-if not cur_all.empty:
-    layers.append(cur_lines)
-
-if layers:
-    chart = alt.layer(*layers).properties(height=300)
-    st.altair_chart(chart, use_container_width=True)
-else:
-    st.info("No data available yet for historicals and projections.")
+    
+    layers = []
+    if not hist_abs.empty:
+        layers.append(hist_chart)
+    if not cur_all.empty:
+        layers.append(cur_lines)
+    
+    if layers:
+        chart = alt.layer(*layers).properties(height=300)
+        st.altair_chart(chart, use_container_width=True)
+    else:
+        st.info("No data available yet for historicals and projections.")
 
     st.subheader("Normalized per-show cumulative (historical vs this year)")
     hist_norm = ref_daily.dropna(subset=["days_to_close","per_show_cum_qty"])
