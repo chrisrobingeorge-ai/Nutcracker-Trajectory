@@ -387,6 +387,44 @@ with st.sidebar:
 ref_daily = daily[daily["season"].isin(seasons_ref)].copy()
 this_daily = daily[daily["season"] == this_season].copy()
 
+def build_reference_curve(daily: pd.DataFrame, seasons_ref: List[str]) -> pd.DataFrame:
+    """
+    Build a reference 'cumulative share of final' curve by days_to_close,
+    averaged across the selected reference seasons, per city.
+    Requires columns: season, city, days_to_close, share_of_final_qty, per_show_cum_qty
+    """
+    if not seasons_ref:
+        # Return an empty frame with expected columns so downstream charts don't break
+        return pd.DataFrame(columns=["city","days_to_close","mean_share","min_share","max_share","mean_per_show"])
+
+    ref = daily[daily["season"].isin(seasons_ref)].copy()
+    needed = ["season", "city", "days_to_close", "share_of_final_qty", "per_show_cum_qty"]
+    missing = [c for c in needed if c not in ref.columns]
+    if missing:
+        raise ValueError(f"Missing columns for reference curve: {missing}")
+
+    # If there's no data for the chosen seasons, return empty safely
+    if ref.empty:
+        return pd.DataFrame(columns=["city","days_to_close","mean_share","min_share","max_share","mean_per_show"])
+
+    agg = (
+        ref.groupby(["city", "days_to_close"], dropna=False)
+           .agg(
+               mean_share=("share_of_final_qty", "mean"),
+               min_share=("share_of_final_qty", "min"),
+               max_share=("share_of_final_qty", "max"),
+               mean_per_show=("per_show_cum_qty", "mean"),
+           )
+           .reset_index()
+    )
+    return agg
+# Build reference curve and project
+try:
+    ref_curve = build_reference_curve(daily, seasons_ref)
+except Exception as e:
+    st.error(f"Could not build reference curve: {e}")
+    st.stop()
+
 # Build reference curve and project
 try:
     ref_curve = build_reference_curve(daily, seasons_ref) if seasons_ref else pd.DataFrame()
