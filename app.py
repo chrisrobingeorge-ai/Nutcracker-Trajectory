@@ -603,26 +603,26 @@ with left:
     else:
         st.info("Per-show normalization requires `num_shows` to be known. Otherwise this chart will be empty.")
 
-if show_revenue and ("cum_rev" in daily.columns) and daily["cum_rev"].notna().any():
-    st.subheader("Revenue trajectory (with projection when possible)")
-    rev_hist = daily.dropna(subset=["days_to_close","cum_rev"]).copy()
-    hist_chart = alt.Chart(rev_hist[rev_hist["season"] != this_season]).mark_line(opacity=0.4).encode(
-        x=alt.X("days_to_close:Q", title="Days to closing (Dec 24)"),
-        y=alt.Y("cum_rev:Q", title="Cumulative revenue"),
-        color=alt.Color("season:N", title="Season"),
-        tooltip=["season","city","sale_date","cum_rev"],
-    )
-    cur_rev = proj_df[(proj_df["season"] == this_season) & proj_df["cum_rev"].notna()]
-    cur_line = alt.Chart(cur_rev).mark_line(size=3).encode(
-        x="days_to_close:Q", y="cum_rev:Q", color=alt.Color("city:N", title="City"),
-        tooltip=["city","sale_date","cum_rev"]
-    )
-    cur_proj = proj_df[(proj_df["season"] == this_season) & proj_df["proj_cum_rev"].notna()]
-    cur_proj_line = alt.Chart(cur_proj).mark_line(strokeDash=[4,2]).encode(
-        x="days_to_close:Q", y="proj_cum_rev:Q", color=alt.Color("city:N", title="City"),
-        tooltip=["city","sale_date","proj_cum_rev"]
-    )
-    st.altair_chart((hist_chart + cur_line + cur_proj_line).properties(height=260), use_container_width=True)
+    if show_revenue and ("cum_rev" in daily.columns) and daily["cum_rev"].notna().any():
+        st.subheader("Revenue trajectory (with projection when possible)")
+        rev_hist = daily.dropna(subset=["days_to_close","cum_rev"]).copy()
+        hist_chart = alt.Chart(rev_hist[rev_hist["season"] != this_season]).mark_line(opacity=0.4).encode(
+            x=alt.X("days_to_close:Q", title="Days to closing (Dec 24)"),
+            y=alt.Y("cum_rev:Q", title="Cumulative revenue"),
+            color=alt.Color("season:N", title="Season"),
+            tooltip=["season","city","sale_date","cum_rev"],
+        )
+        cur_rev = proj_df[(proj_df["season"] == this_season) & proj_df["cum_rev"].notna()]
+        cur_line = alt.Chart(cur_rev).mark_line(size=3).encode(
+            x="days_to_close:Q", y="cum_rev:Q", color=alt.Color("city:N", title="City"),
+            tooltip=["city","sale_date","cum_rev"]
+        )
+        cur_proj = proj_df[(proj_df["season"] == this_season) & proj_df["proj_cum_rev"].notna()]
+        cur_proj_line = alt.Chart(cur_proj).mark_line(strokeDash=[4,2]).encode(
+            x="days_to_close:Q", y="proj_cum_rev:Q", color=alt.Color("city:N", title="City"),
+            tooltip=["city","sale_date","proj_cum_rev"]
+        )
+        st.altair_chart((hist_chart + cur_line + cur_proj_line).properties(height=260), use_container_width=True)
 
 with right:
     st.subheader("Summary & projection")
