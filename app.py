@@ -92,6 +92,32 @@ def load_and_standardize_from_path(path: Path) -> pd.DataFrame:
     if src_col:  ren[src_col]  = "source"
     df = df.rename(columns=ren)
 
+    # --- Normalize key columns early ---
+    # City: trim, unify NaNs, and standardize common variants
+    if "city" in df.columns:
+        df["city"] = (
+            df["city"]
+            .astype(str)
+            .str.strip()
+            .replace({"nan": np.nan})
+            .fillna("Combined")
+        )
+        # optional strict mapping to avoid variants
+        CITY_MAP = {
+            "calgary": "Calgary",
+            "edmonton": "Edmonton",
+            "yyc": "Calgary",
+            "yeg": "Edmonton",
+            "combined": "Combined",
+        }
+        df["city"] = df["city"].str.lower().map(CITY_MAP).fillna(df["city"])
+    else:
+        df["city"] = "Combined"
+    
+    # Season: trim
+    df["season"] = df["season"].astype(str).str.strip()
+
+
     df["sale_date"] = _coerce_dates(df, "sale_date")
     df["qty"] = pd.to_numeric(df["qty"], errors="coerce").fillna(0).astype(int)
     if "revenue" in df.columns:
@@ -120,14 +146,19 @@ def aggregate_daily(df: pd.DataFrame) -> pd.DataFrame:
     return grp
 
 def _season_to_closing_year(s: str) -> Optional[int]:
-    # '2025' -> 2025; '2024-25'/'2024/25'/'2024–25' -> 2025; '2022–2023' -> 2023
+    """
+    Extract the closing year from a season string.
+    Accepts: "2025", "2024-25", "2024/25", "2024–25", "2024-2025", "Season 2024/25", etc.
+    """
     if not isinstance(s, str):
         s = str(s)
     s = s.strip()
     import re
-    m = re.search(r"(20\d{2})$", s)
+    # explicit 4-digit at end
+    m = re.search(r"(20\d{2})\s*$", s)
     if m:
         return int(m.group(1))
+    # 4-digit sep 2/4-digit
     m = re.search(r"(20\d{2})\s*[-/–]\s*(\d{2,4})", s)
     if m:
         start = int(m.group(1))
@@ -136,10 +167,12 @@ def _season_to_closing_year(s: str) -> Optional[int]:
             return int(str(start)[:2] + tail)
         elif len(tail) == 4:
             return int(tail)
+    # any 4-digit anywhere
     m = re.search(r"(20\d{2})", s)
     if m:
         return int(m.group(1))
     return None
+
 
 def _extend_current_to_closing(daily: pd.DataFrame, this_season: str) -> pd.DataFrame:
     """
@@ -212,6 +245,30 @@ def compute_calendar_refs(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]
         out_meta["num_shows"] = np.nan
 
     daily = aggregate_daily(df).merge(out_meta, on=["season", "city"], how="left")
+
+    # --- Repair any (season, city) that somehow missed a closing_date ---
+    if "closing_date" not in daily.columns:
+        daily["closing_date"] = pd.NaT
+    
+    mask_na_close = daily["closing_date"].isna()
+    if mask_na_close.any():
+        # Try recomputing from season string directly
+        fix = daily.loc[mask_na_close, ["season"]].copy()
+        fix["closing_year"] = fix["season"].apply(_season_to_closing_year)
+        with np.errstate(all='ignore'):
+            daily.loc[mask_na_close, "closing_date"] = pd.to_datetime(
+                dict(year=fix["closing_year"].astype("Int64"), month=12, day=24),
+                errors="coerce"
+            )
+    
+        # If still missing, surface a clear error with the offending keys
+        still = daily.loc[daily["closing_date"].isna(), ["season", "city"]].drop_duplicates()
+        if not still.empty:
+            raise ValueError(
+                "Could not determine closing_date for these (season, city) pairs. "
+                "Check season strings and city spellings:\n"
+                + still.to_string(index=False)
+            )
 
     # days_to_close: negative before Dec 24, 0 on Dec 24
     daily["days_to_close"] = (daily["sale_date"].dt.normalize() - daily["closing_date"]).dt.days
