@@ -193,9 +193,8 @@ def _season_to_closing_year(s: str) -> Optional[int]:
         return int(m.group(1))
     return None
 
-
 def compute_calendar_refs(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    # Derive closing_year from season string
+    # 1) Parse closing year from season and build closing_date (Dec 24)
     meta = (
         df[["season", "city"]].drop_duplicates()
           .assign(closing_year=lambda x: x["season"].apply(_season_to_closing_year))
@@ -208,21 +207,27 @@ def compute_calendar_refs(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]
         dict(year=meta["closing_year"].astype(int), month=12, day=24)
     )
 
-    # Bring optional capacity/num_shows if present
+    # 2) Bring optional capacity/num_shows if present, otherwise create NaN columns
     out_meta = meta.copy()
+
     if "capacity" in df.columns:
         cap = (df.groupby(["season", "city"], dropna=False)["capacity"]
                  .max().rename("total_capacity").reset_index())
         out_meta = out_meta.merge(cap, on=["season", "city"], how="left")
+    else:
+        out_meta["total_capacity"] = np.nan  # ensure column exists
+
     if "num_shows" in df.columns:
         ns = (df.groupby(["season", "city"], dropna=False)["num_shows"]
                 .max().reset_index())
         out_meta = out_meta.merge(ns, on=["season", "city"], how="left")
+    else:
+        out_meta["num_shows"] = np.nan  # ensure column exists
 
-    # Aggregate daily sales
+    # 3) Aggregate daily sales and join meta
     daily = aggregate_daily(df).merge(out_meta, on=["season", "city"], how="left")
 
-    # Days to closing: negative before Dec 24, zero on Dec 24
+    # Days to closing (negative before Dec 24, 0 on Dec 24)
     daily["days_to_close"] = (daily["sale_date"].dt.normalize() - daily["closing_date"]).dt.days
 
     # Cumulative
@@ -233,6 +238,7 @@ def compute_calendar_refs(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]
     else:
         daily["cum_rev"] = np.nan
 
+    # Finals (run totals)
     finals = daily.groupby(["season", "city"], dropna=False).agg(
         final_qty=("qty", "sum"),
         final_rev=("revenue", "sum") if "revenue" in daily.columns else ("qty", "sum"),
@@ -240,57 +246,29 @@ def compute_calendar_refs(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]
 
     out = daily.merge(finals, on=["season", "city"], how="left")
 
-    # Per-show normalization only if num_shows is known
-    if "num_shows" in out_meta.columns:
-        out = out.merge(out_meta[["season", "city", "num_shows"]], on=["season", "city"], how="left")
-        out["per_show_cum_qty"] = out["cum_qty"] / out["num_shows"].replace(0, np.nan)
-    else:
-        out["per_show_cum_qty"] = np.nan
-
+    # Per-show normalization and shares (guard divide-by-zero)
+    out["per_show_cum_qty"] = out["cum_qty"] / out["num_shows"].replace(0, np.nan)
     out["share_of_final_qty"] = out["cum_qty"] / out["final_qty"].replace(0, np.nan)
-
-    if "total_capacity" in out_meta.columns:
-        out = out.merge(out_meta[["season", "city", "total_capacity"]], on=["season", "city"], how="left")
-        out["share_of_capacity"] = out["cum_qty"] / out["total_capacity"].replace(0, np.nan)
-    else:
-        out["total_capacity"] = np.nan
-        out["share_of_capacity"] = np.nan
+    out["share_of_capacity"] = out["cum_qty"] / out["total_capacity"].replace(0, np.nan)
 
     return out, out_meta
-
-
-def build_reference_curve(daily: pd.DataFrame, seasons_ref: List[str]) -> pd.DataFrame:
-    ref = daily[daily["season"].isin(seasons_ref)].copy()
-    needed = ["season", "city", "days_to_close", "share_of_final_qty", "per_show_cum_qty"]
-    missing = [c for c in needed if c not in ref.columns]
-    if missing:
-        raise ValueError(f"Missing columns for reference curve: {missing}")
-
-    agg = (
-        ref.groupby(["city", "days_to_close"], dropna=False)
-           .agg(mean_share=("share_of_final_qty", "mean"),
-                min_share=("share_of_final_qty", "min"),
-                max_share=("share_of_final_qty", "max"),
-                mean_per_show=("per_show_cum_qty", "mean"))
-           .reset_index()
-    )
-    return agg
 
 
 def project_this_year(
     daily: pd.DataFrame,
     this_season: str,
     ref_curve: pd.DataFrame,
-    open_meta: pd.DataFrame,
+    run_meta: pd.DataFrame,   # was open_meta
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    # Join meta (num_shows/total_capacity may be NaN — that's fine)
     cur = daily[daily["season"] == this_season].copy()
-    cur = cur.merge(open_meta, on=["season", "city"], how="left")
-
+    cur = cur.merge(run_meta[["season","city","num_shows","total_capacity"]], on=["season","city"], how="left")
     cur = cur.merge(ref_curve, on=["city", "days_to_close"], how="left")
 
     proj_rows = []
     for city, g in cur.groupby("city"):
         g = g.sort_values("sale_date")
+
         cum_qty_today = g["cum_qty"].iloc[-1]
         cap_total = g["total_capacity"].iloc[-1] if "total_capacity" in g.columns else np.nan
         ref_today_share = g["mean_share"].dropna().iloc[-1] if g["mean_share"].notna().any() else np.nan
@@ -299,32 +277,31 @@ def project_this_year(
         if pd.notna(ref_today_share) and ref_today_share > 0:
             proj_final_qty_shape = cum_qty_today / ref_today_share
 
-        proj_pct_capacity = np.nan
-        if pd.notna(cap_total) and cap_total > 0 and pd.notna(proj_final_qty_shape):
-            proj_pct_capacity = proj_final_qty_shape / cap_total
-
         g["proj_cum_qty"] = g["mean_share"] * proj_final_qty_shape if pd.notna(proj_final_qty_shape) else np.nan
         g["proj_min_cum_qty"] = g["min_share"] * proj_final_qty_shape if pd.notna(proj_final_qty_shape) else np.nan
         g["proj_max_cum_qty"] = g["max_share"] * proj_final_qty_shape if pd.notna(proj_final_qty_shape) else np.nan
 
-        g["city"] = city
         proj_rows.append(g)
 
     proj = pd.concat(proj_rows, ignore_index=True) if proj_rows else cur
 
+    # Summary per city
     summaries = []
     for city, g in proj.groupby("city"):
+        cap_total = g["total_capacity"].iloc[-1] if "total_capacity" in g.columns else np.nan
+        proj_final = g["proj_cum_qty"].dropna().iloc[-1] if g["proj_cum_qty"].notna().any() else np.nan
+        pct_cap = (proj_final / cap_total) if (pd.notna(proj_final) and pd.notna(cap_total) and cap_total > 0) else np.nan
         row = dict(
             season=this_season,
             city=city,
             current_cum_qty=g["cum_qty"].iloc[-1] if len(g) else np.nan,
-            projected_final_qty=(g["proj_cum_qty"].iloc[-1] if g["proj_cum_qty"].notna().any() else np.nan),
-            projected_pct_capacity=(g["proj_cum_qty"].iloc[-1] / g["total_capacity"].iloc[-1]
-                                    if ("total_capacity" in g.columns and g["total_capacity"].iloc[-1] > 0 and g["proj_cum_qty"].notna().any()) else np.nan),
+            projected_final_qty=proj_final,
+            projected_pct_capacity=pct_cap,
             num_shows=g["num_shows"].iloc[-1] if "num_shows" in g.columns else np.nan,
-            total_capacity=g["total_capacity"].iloc[-1] if "total_capacity" in g.columns else np.nan,
+            total_capacity=cap_total,
         )
         summaries.append(row)
+
     summary_df = pd.DataFrame(summaries)
     return proj, summary_df
 
