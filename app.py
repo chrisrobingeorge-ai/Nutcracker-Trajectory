@@ -568,9 +568,9 @@ this_season = this_season_values[0]
 last_file_date = this_df["sale_date"].max().date()
 
 with st.sidebar:
-    st.header("3) Latest sales (optional)")
+    st.header("3) Sales Play (optional)")
     latest_sales_date = st.date_input(
-        "Latest sales as of date",
+        "Enter date of sales",
         value=last_file_date,
         help="If you've booked more tickets since the CSV export, use this to update projections.",
     )
