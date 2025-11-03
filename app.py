@@ -548,6 +548,13 @@ st.write({
 })
 # Now project on the extended data
 proj_df, summary_df = project_this_year(daily_extended, this_season, ref_curve, run_meta)
+check = proj_df[proj_df["season"] == this_season].copy()
+check = check.sort_values(["city","sale_date"]).groupby("city").tail(3)
+st.caption("🔎 Projection inputs near today")
+st.dataframe(
+    check[["city","sale_date","days_to_close","cum_qty","mean_share","proj_cum_qty","proj_cum_rev"]],
+    use_container_width=True
+)
 
 # Trim plotting window
 plot_ref  = ref_curve[ref_curve["days_to_close"] >= -window_days].copy()
