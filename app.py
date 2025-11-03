@@ -149,7 +149,7 @@ def _extend_current_to_closing(daily: pd.DataFrame, this_season: str) -> pd.Data
     """
     cur = daily[daily["season"] == this_season].copy()
     if cur.empty:
-        return cur
+        return daily  # nothing to add; return original frame
 
     needed_cols = ["season", "city", "sale_date", "closing_date"]
     missing = [c for c in needed_cols if c not in cur.columns]
@@ -160,29 +160,29 @@ def _extend_current_to_closing(daily: pd.DataFrame, this_season: str) -> pd.Data
     for city, g in cur.groupby("city"):
         close = pd.to_datetime(g["closing_date"].iloc[0]).normalize()
         last_dt = pd.to_datetime(g["sale_date"].max()).normalize()
-        if last_dt < close:
-            future_days = pd.date_range(start=last_dt + pd.Timedelta(days=1), end=close, freq="D")
-            base = {
-                "season": this_season,
-                "city": city,
-                "qty": 0,
-            }
-            if "revenue" in daily.columns:
-                base["revenue"] = 0.0
-            # If you carry capacity/num_shows per (season,city), we’ll merge later as before
-            f = pd.DataFrame(base).reindex(range(len(future_days)))
-            f["sale_date"] = future_days
-            rows.append(f)
+        if last_dt >= close:
+            continue
 
-    fut = pd.concat(rows, ignore_index=True) if rows else pd.DataFrame(columns=["season","city","sale_date","qty"])
-    # If nothing to add, just return the original
-    if fut.empty:
-        return cur
+        future_days = pd.date_range(start=last_dt + pd.Timedelta(days=1), end=close, freq="D")
+        # Build directly from arrays (no scalar dict + reindex)
+        f = pd.DataFrame({
+            "season":     np.repeat(this_season, len(future_days)),
+            "city":       np.repeat(city,        len(future_days)),
+            "sale_date":  future_days,
+            "qty":        np.zeros(len(future_days), dtype=int),
+        })
+        if "revenue" in daily.columns:
+            f["revenue"] = np.zeros(len(future_days), dtype=float)
 
+        rows.append(f)
+
+    if not rows:
+        return daily
+
+    fut = pd.concat(rows, ignore_index=True)
     out = pd.concat([daily, fut], ignore_index=True)
-    out = out.sort_values(["season","city","sale_date"]).reset_index(drop=True)
+    out = out.sort_values(["season", "city", "sale_date"]).reset_index(drop=True)
     return out
-
 
 def compute_calendar_refs(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
     # Build meta per (season,city) with Dec 24 closing
