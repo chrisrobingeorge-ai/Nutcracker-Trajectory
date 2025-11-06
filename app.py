@@ -1026,6 +1026,64 @@ if {"proj_cum_rev", "proj_cum_qty"}.issubset(table_df.columns):
         np.nan,
     )
 
+table_df = plot_proj[plot_proj["season"] == this_season].copy()
+
+# Sort ascending for diffs (per city)
+table_df = table_df.sort_values(["city", "sale_date"])
+
+# ----- DAILY ACTUAL AVG PRICE -----
+if {"cum_qty", "cum_rev"}.issubset(table_df.columns):
+    # daily qty & rev from cumulative (per city)
+    table_df["daily_qty_actual"] = table_df.groupby("city")["cum_qty"].diff()
+    table_df["daily_rev_actual"] = table_df.groupby("city")["cum_rev"].diff()
+
+    # For first row per city, diff is NaN → use the cumulative value
+    first_cum_qty = table_df.groupby("city")["cum_qty"].transform("first")
+    first_cum_rev = table_df.groupby("city")["cum_rev"].transform("first")
+    first_mask = table_df["cum_qty"].eq(first_cum_qty)
+
+    table_df.loc[first_mask, "daily_qty_actual"] = first_cum_qty[first_mask]
+    table_df.loc[first_mask, "daily_rev_actual"] = first_cum_rev[first_mask]
+
+    # Only days with real sales
+    mask_actual = (
+        table_df["daily_qty_actual"].notna()
+        & (table_df["daily_qty_actual"] > 0)
+        & table_df["daily_rev_actual"].notna()
+    )
+
+    table_df["avg_price_actual"] = np.where(
+        mask_actual,
+        table_df["daily_rev_actual"] / table_df["daily_qty_actual"],
+        np.nan,
+    )
+
+# ----- DAILY PROJECTED AVG PRICE -----
+if {"proj_cum_qty", "proj_cum_rev"}.issubset(table_df.columns):
+    table_df["daily_qty_proj"] = table_df.groupby("city")["proj_cum_qty"].diff()
+    table_df["daily_rev_proj"] = table_df.groupby("city")["proj_cum_rev"].diff()
+
+    # First projected point per city
+    first_proj_qty = table_df.groupby("city")["proj_cum_qty"].transform("first")
+    first_proj_rev = table_df.groupby("city")["proj_cum_rev"].transform("first")
+    first_proj_mask = table_df["proj_cum_qty"].eq(first_proj_qty) & table_df["proj_cum_qty"].notna()
+
+    table_df.loc[first_proj_mask, "daily_qty_proj"] = first_proj_qty[first_proj_mask]
+    table_df.loc[first_proj_mask, "daily_rev_proj"] = first_proj_rev[first_proj_mask]
+
+    mask_proj = (
+        table_df["daily_qty_proj"].notna()
+        & (table_df["daily_qty_proj"] > 0)
+        & table_df["daily_rev_proj"].notna()
+    )
+
+    table_df["avg_price_proj"] = np.where(
+        mask_proj,
+        table_df["daily_rev_proj"] / table_df["daily_qty_proj"],
+        np.nan,
+    )
+
+# Now pick the columns to display and sort for viewing
 cols_order = [
     "season",
     "city",
@@ -1036,12 +1094,11 @@ cols_order = [
     "proj_min_cum_qty",
     "proj_max_cum_qty",
     "cum_rev",
-    "avg_price_so_far",
     "proj_cum_rev",
-    "proj_avg_price",
+    "avg_price_actual",
+    "avg_price_proj",
 ]
 cols_order = [c for c in cols_order if c in table_df.columns]
-
 table_df = table_df[cols_order].sort_values(
     ["city", "sale_date"],
     ascending=[True, False],
@@ -1057,9 +1114,9 @@ pretty_cols = {
     "proj_min_cum_qty": "Projection – low",
     "proj_max_cum_qty": "Projection – high",
     "cum_rev": "Revenue so far",
-    "avg_price_so_far": "Avg ticket price so far",
     "proj_cum_rev": "Projected revenue",
-    "proj_avg_price": "Projected avg ticket price",
+    "avg_price_actual": "Avg ticket price (actual, per day)",
+    "avg_price_proj": "Avg ticket price (projected, per day)",
 }
 
 display_df = table_df.rename(columns=pretty_cols)
