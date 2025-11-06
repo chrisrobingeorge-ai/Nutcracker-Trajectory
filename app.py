@@ -1010,8 +1010,9 @@ st.subheader("Projection by day (this season)")
 # Start from projected frame (includes actual + projected cum series)
 table_df = plot_proj[plot_proj["season"] == this_season].copy()
 
-# We already have this_daily and last_actual_date earlier
+# Last real-sale day for this season
 last_actual_date = this_daily["sale_date"].max()
+
 table_df["is_actual_day"] = table_df["sale_date"] <= last_actual_date
 table_df["is_projected_day"] = table_df["sale_date"] > last_actual_date
 
@@ -1073,6 +1074,21 @@ table_df["avg_price"] = np.where(
     table_df.get("avg_price_actual"),
     table_df.get("avg_price_proj"),
 )
+
+# Remove projections on days where we have actual sales
+mask_actual = table_df["is_actual_day"]
+
+for col in [
+    "proj_cum_qty",
+    "proj_min_cum_qty",
+    "proj_max_cum_qty",
+    "proj_cum_rev",
+    "daily_qty_proj",
+    "daily_rev_proj",
+    "avg_price_proj",
+]:
+    if col in table_df.columns:
+        table_df.loc[mask_actual, col] = np.nan
 
 # ----------------------------
 # 4) Select + order columns
