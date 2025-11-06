@@ -1007,11 +1007,22 @@ else:
 # ----------------------------
 st.subheader("Projection by day (this season)")
 
-# Start from projected frame
+# Start from projected frame (includes actual + projected cum series)
 table_df = plot_proj[plot_proj["season"] == this_season].copy()
 
-# ---- 1) ACTUAL daily avg ticket price (from this_daily) ----
-# this_daily comes from: this_daily = daily[daily["season"] == this_season].copy()
+# We already computed this earlier:
+# this_daily = daily[daily["season"] == this_season].copy()
+# last_actual_date = this_daily["sale_date"].max()
+
+# Helper flags for clarity
+last_actual_date = this_daily["sale_date"].max()
+table_df["is_actual_day"] = table_df["sale_date"] <= last_actual_date
+table_df["is_projected_day"] = table_df["sale_date"] > last_actual_date
+
+# ----------------------------
+# 1) ACTUAL daily avg ticket price (from this_daily)
+# ----------------------------
+# this_daily is already aggregated per (season, city, sale_date)
 if {"qty", "revenue"}.issubset(this_daily.columns):
     actual_daily = this_daily[["season", "city", "sale_date", "qty", "revenue"]].copy()
     actual_daily["avg_price_actual"] = np.where(
@@ -1019,10 +1030,9 @@ if {"qty", "revenue"}.issubset(this_daily.columns):
         actual_daily["revenue"] / actual_daily["qty"],
         np.nan,
     )
-    # Keep only the columns we need for merge
     actual_daily = actual_daily[["season", "city", "sale_date", "avg_price_actual"]]
 
-    # Merge onto the projection table so only true sale days get a value
+    # Merge onto table_df so ONLY true sale days get an actual avg price
     table_df = table_df.merge(
         actual_daily,
         on=["season", "city", "sale_date"],
@@ -1031,23 +1041,26 @@ if {"qty", "revenue"}.issubset(this_daily.columns):
 else:
     table_df["avg_price_actual"] = np.nan
 
-# ---- 2) PROJECTED daily avg ticket price (from proj_cum_* diffs) ----
+# ----------------------------
+# 2) PROJECTED daily avg ticket price (from proj_cum_*), ONLY for future days
+# ----------------------------
 if {"proj_cum_qty", "proj_cum_rev"}.issubset(table_df.columns):
-    # Sort ascending for diff calculations
+    # Sort ascending for diffs
     table_df = table_df.sort_values(["city", "sale_date"])
 
-    # Daily deltas per city
+    # Daily projected deltas per city
     table_df["daily_qty_proj"] = table_df.groupby("city")["proj_cum_qty"].diff()
     table_df["daily_rev_proj"] = table_df.groupby("city")["proj_cum_rev"].diff()
 
-    # First projected point per city → treat cumulative as that day's value
-    first_mask = table_df.groupby("city")["sale_date"].transform("min").eq(table_df["sale_date"])
+    # For the first row per city, use the cumulative as that day's value
+    first_mask = table_df.groupby("city")["sale_date"].transform("min") == table_df["sale_date"]
     table_df.loc[first_mask, "daily_qty_proj"] = table_df.loc[first_mask, "proj_cum_qty"]
     table_df.loc[first_mask, "daily_rev_proj"] = table_df.loc[first_mask, "proj_cum_rev"]
 
-    # Only days with positive projected tickets and non-NaN revenue
+    # Only future days should show projected avg price
     mask_proj = (
-        table_df["daily_qty_proj"].notna()
+        table_df["is_projected_day"]
+        & table_df["daily_qty_proj"].notna()
         & (table_df["daily_qty_proj"] > 0)
         & table_df["daily_rev_proj"].notna()
     )
@@ -1060,7 +1073,9 @@ if {"proj_cum_qty", "proj_cum_rev"}.issubset(table_df.columns):
 else:
     table_df["avg_price_proj"] = np.nan
 
-# ---- 3) Select + order columns for display ----
+# ----------------------------
+# 3) Select + order columns for display
+# ----------------------------
 cols_order = [
     "season",
     "city",
