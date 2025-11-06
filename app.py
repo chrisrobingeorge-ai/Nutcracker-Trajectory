@@ -1108,8 +1108,8 @@ pretty_cols = {
     "proj_max_cum_qty": "Projection – high",
     "cum_rev": "Revenue so far (cumulative)",
     "proj_cum_rev": "Projected revenue (cumulative)",
-    "avg_price_actual": "Avg ticket price (actual, per day)",
-    "avg_price_proj": "Avg ticket price (projected, per day)",
+    "avg_price_actual": "Avg ticket $ (actual)",
+    "avg_price_proj": "Avg ticket $ (projected)",
 }
 
 display_df = table_df.rename(columns=pretty_cols)
@@ -1122,8 +1122,8 @@ currency_cols = [
     "Revenue so far (cumulative)",
     "Projected revenue",
     "Projected revenue (cumulative)",
-    "Avg ticket price (actual, per day)",
-    "Avg ticket price (projected, per day)",
+    "Avg ticket $ (actual)",
+    "Avg ticket $ (projected)",
 ]
 
 for col in currency_cols:
