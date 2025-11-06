@@ -1114,7 +1114,25 @@ pretty_cols = {
 
 display_df = table_df.rename(columns=pretty_cols)
 
-st.dataframe(display_df, use_container_width=True, hide_index=True)
+# Make a formatted copy just for display
+display_df_fmt = display_df.copy()
+
+currency_cols = [
+    "Revenue so far",
+    "Revenue so far (cumulative)",
+    "Projected revenue",
+    "Projected revenue (cumulative)",
+    "Avg ticket price (actual, per day)",
+    "Avg ticket price (projected, per day)",
+]
+
+for col in currency_cols:
+    if col in display_df_fmt.columns:
+        display_df_fmt[col] = display_df_fmt[col].apply(
+            lambda x: f"${x:,.2f}" if pd.notnull(x) else ""
+        )
+
+st.dataframe(display_df_fmt, use_container_width=True, hide_index=True)
 
 st.download_button(
     label="Download projection by day (CSV)",
