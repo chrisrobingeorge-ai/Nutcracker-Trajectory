@@ -123,9 +123,13 @@ def load_and_standardize_from_path(path: Path) -> pd.DataFrame:
     return df
 
 def aggregate_daily(df: pd.DataFrame) -> pd.DataFrame:
-    grp = df.groupby(["season", "city", "sale_date"], dropna=False, as_index=False).agg(
-        qty=("qty", "sum"),
-        revenue=("revenue", "sum") if "revenue" in df.columns else ("qty", "sum"),
+    agg_dict = {"qty": ("qty", "sum")}
+    if "revenue" in df.columns:
+        agg_dict["revenue"] = ("revenue", "sum")
+
+    grp = (
+        df.groupby(["season", "city", "sale_date"], dropna=False, as_index=False)
+          .agg(agg_dict)
     )
     grp = grp.sort_values(["season", "city", "sale_date"]).reset_index(drop=True)
     return grp
@@ -577,6 +581,22 @@ def project_this_year(
         )
 
         current_cum_qty = g["cum_qty"].dropna().iloc[-1] if g["cum_qty"].notna().any() else np.nan
+        current_cum_rev = (
+            g["cum_rev"].dropna().iloc[-1]
+            if ("cum_rev" in g.columns and g["cum_rev"].notna().any())
+            else np.nan
+        )
+
+        current_avg_price = (
+            current_cum_rev / current_cum_qty
+            if (pd.notna(current_cum_rev) and pd.notna(current_cum_qty) and current_cum_qty > 0)
+            else np.nan
+        )
+        projected_avg_price = (
+            proj_final_rev / proj_final_qty
+            if (pd.notna(proj_final_rev) and pd.notna(proj_final_qty) and proj_final_qty > 0)
+            else np.nan
+        )
 
         summaries.append(dict(
             season=this_season,
@@ -585,6 +605,8 @@ def project_this_year(
             projected_final_qty=proj_final_qty,
             projected_pct_capacity=pct_cap,
             projected_final_revenue=proj_final_rev,
+            current_avg_price=current_avg_price,
+            projected_avg_price=projected_avg_price,
             num_shows=(final_row["num_shows"] if (final_row is not None and "num_shows" in final_row) else np.nan),
             total_capacity=cap_total,
         ))
@@ -982,6 +1004,23 @@ st.subheader("Projection by day (this season)")
 
 table_df = plot_proj[plot_proj["season"] == this_season].copy()
 
+# Average prices by day (requires revenue)
+if {"cum_rev", "cum_qty"}.issubset(table_df.columns):
+    mask_curr = (table_df["cum_qty"] > 0) & table_df["cum_rev"].notna()
+    table_df["avg_price_so_far"] = np.where(
+        mask_curr,
+        table_df["cum_rev"] / table_df["cum_qty"],
+        np.nan,
+    )
+
+if {"proj_cum_rev", "proj_cum_qty"}.issubset(table_df.columns):
+    mask_proj = (table_df["proj_cum_qty"] > 0) & table_df["proj_cum_rev"].notna()
+    table_df["proj_avg_price"] = np.where(
+        mask_proj,
+        table_df["proj_cum_rev"] / table_df["proj_cum_qty"],
+        np.nan,
+    )
+
 cols_order = [
     "season",
     "city",
@@ -992,9 +1031,12 @@ cols_order = [
     "proj_min_cum_qty",
     "proj_max_cum_qty",
     "cum_rev",
+    "avg_price_so_far",
     "proj_cum_rev",
+    "proj_avg_price",
 ]
 cols_order = [c for c in cols_order if c in table_df.columns]
+
 table_df = table_df[cols_order].sort_values(
     ["city", "sale_date"],
     ascending=[True, False],
@@ -1010,7 +1052,9 @@ pretty_cols = {
     "proj_min_cum_qty": "Projection – low",
     "proj_max_cum_qty": "Projection – high",
     "cum_rev": "Revenue so far",
+    "avg_price_so_far": "Avg ticket price so far",
     "proj_cum_rev": "Projected revenue",
+    "proj_avg_price": "Projected avg ticket price",
 }
 
 display_df = table_df.rename(columns=pretty_cols)
