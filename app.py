@@ -123,15 +123,20 @@ def load_and_standardize_from_path(path: Path) -> pd.DataFrame:
     return df
 
 def aggregate_daily(df: pd.DataFrame) -> pd.DataFrame:
-    agg_dict = {"qty": ("qty", "sum")}
+    """
+    Aggregate to daily totals per (season, city, sale_date).
+    Always sums qty; sums revenue only if the column exists.
+    """
+    agg_kwargs = dict(qty=("qty", "sum"))
     if "revenue" in df.columns:
-        agg_dict["revenue"] = ("revenue", "sum")
+        agg_kwargs["revenue"] = ("revenue", "sum")
 
     grp = (
         df.groupby(["season", "city", "sale_date"], dropna=False, as_index=False)
-          .agg(agg_dict)
+          .agg(**agg_kwargs)
+          .sort_values(["season", "city", "sale_date"])
+          .reset_index(drop=True)
     )
-    grp = grp.sort_values(["season", "city", "sale_date"]).reset_index(drop=True)
     return grp
 
 def _season_to_closing_year(s: str) -> Optional[int]:
