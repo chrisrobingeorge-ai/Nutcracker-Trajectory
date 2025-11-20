@@ -23,6 +23,10 @@ wheels/
 .installed.cfg
 *.egg
 
+# Logs
+*.log
+logs/
+
 # Streamlit
 .streamlit/
 
