@@ -3,12 +3,26 @@ PyCaret-based projection module for Nutcracker Trajectory Tracker.
 
 This module provides ML-based regression models using PyCaret's AutoML
 capabilities to complement the historical averaging approach.
+
+Requirements:
+    - Python 3.9, 3.10, or 3.11 (PyCaret does not support 3.12 yet)
+    - pycaret>=3.3.2
 """
 from __future__ import annotations
 from typing import Optional, Tuple
+import sys
 import pandas as pd
 import numpy as np
 import warnings
+
+# Check Python version for PyCaret compatibility
+PYTHON_VERSION = sys.version_info
+PYCARET_COMPATIBLE = (3, 9) <= PYTHON_VERSION[:2] <= (3, 11)
+
+if not PYCARET_COMPATIBLE:
+    raise ImportError(
+        f"PyCaret requires Python 3.9-3.11. Current version: {PYTHON_VERSION.major}.{PYTHON_VERSION.minor}"
+    )
 
 # Suppress PyCaret warnings for cleaner UI
 warnings.filterwarnings('ignore')

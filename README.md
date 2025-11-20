@@ -47,10 +47,12 @@ The app now includes optional machine learning-based projections using **PyCaret
 - **No configuration needed**: Works out-of-the-box with default settings
 
 ### Requirements:
+- **Python version**: 3.9, 3.10, or 3.11 (PyCaret does not support Python 3.12 yet)
+- **Installation**:
 ```bash
 pip install pycaret>=3.3.2
 ```
 
-The feature gracefully degrades if PyCaret is not installed, allowing the app to run with only the traditional curve-based projections.
+The feature gracefully degrades if PyCaret is not installed or if Python version is incompatible, allowing the app to run with only the traditional curve-based projections.
 
 ## Repo structure

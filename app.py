@@ -13,8 +13,9 @@ import streamlit as st
 try:
     from pycaret_projection import train_pycaret_model, predict_with_pycaret, get_ml_projection_summary
     PYCARET_AVAILABLE = True
-except ImportError:
+except (ImportError, Exception) as e:
     PYCARET_AVAILABLE = False
+    PYCARET_ERROR = str(e)
 
 # ----------------------------
 # Streamlit page configuration
@@ -677,7 +678,10 @@ with st.sidebar:
         )
     else:
         use_pycaret = False
-        st.info("PyCaret not available. Install with: pip install pycaret")
+        if 'PYCARET_ERROR' in globals() and 'Python version' in PYCARET_ERROR:
+            st.warning("⚠️ PyCaret requires Python 3.9-3.11. Current version not supported.")
+        else:
+            st.info("PyCaret not available. Install with: pip install pycaret")
 
 with st.sidebar:
     st.header("2) Display")
