@@ -9,6 +9,13 @@ import pandas as pd
 import altair as alt
 import streamlit as st
 
+# Optional: PyCaret ML-based projections
+try:
+    from pycaret_projection import train_pycaret_model, predict_with_pycaret, get_ml_projection_summary
+    PYCARET_AVAILABLE = True
+except ImportError:
+    PYCARET_AVAILABLE = False
+
 # ----------------------------
 # Streamlit page configuration
 # ----------------------------
@@ -660,6 +667,17 @@ with st.sidebar:
 
     city_mode = st.selectbox("City view", ["Combined", "By City"], index=0)
     show_revenue = st.checkbox("Include revenue curves when available", value=True)
+    
+    # PyCaret ML option
+    if PYCARET_AVAILABLE:
+        use_pycaret = st.checkbox(
+            "Enable ML-based projections (PyCaret)",
+            value=False,
+            help="Train an AutoML regression model on historical data for alternative projections. May take extra time to train."
+        )
+    else:
+        use_pycaret = False
+        st.info("PyCaret not available. Install with: pip install pycaret")
 
 with st.sidebar:
     st.header("2) Display")
@@ -838,6 +856,26 @@ proj_df, summary_df = project_this_year(
     daily_extended, this_season, ref_curve, run_meta, seasons_ref
 )
 
+# ----------------------------
+# Optional: PyCaret ML-based projection
+# ----------------------------
+ml_model = None
+ml_summary_df = pd.DataFrame()
+
+if use_pycaret and PYCARET_AVAILABLE and seasons_ref:
+    with st.spinner("Training ML model with PyCaret... This may take a minute."):
+        try:
+            ml_model = train_pycaret_model(daily_extended, seasons_ref)
+            
+            if ml_model is not None:
+                proj_df = predict_with_pycaret(ml_model, proj_df, this_season)
+                ml_summary_df = get_ml_projection_summary(proj_df, this_season)
+                st.success("✓ ML model trained successfully!")
+            else:
+                st.warning("ML model training skipped (insufficient data or features).")
+        except Exception as e:
+            st.warning(f"ML model training failed: {e}")
+
 plot_proj = proj_df.copy()
 if "mean_share" in plot_proj.columns:
     too_early = plot_proj["mean_share"].notna() & (plot_proj["mean_share"] < min_share_to_project)
@@ -1001,6 +1039,71 @@ else:
             st.altair_chart(chart_c, use_container_width=True)
         else:
             st.info(f"No data available yet for {city}.")
+
+# ----------------------------
+# Projection Summary Comparison
+# ----------------------------
+if not summary_df.empty or not ml_summary_df.empty:
+    st.subheader("Final Projection Summary")
+    
+    if not summary_df.empty:
+        st.markdown("**Historical Curve-Based Projections:**")
+        display_summary = summary_df.copy()
+        
+        # Format numeric columns
+        numeric_cols = ["current_cum_qty", "projected_final_qty", "projected_pct_capacity", 
+                       "projected_final_revenue", "current_avg_price", "projected_avg_price"]
+        for col in numeric_cols:
+            if col in display_summary.columns:
+                if "revenue" in col.lower() or "price" in col.lower():
+                    display_summary[col] = display_summary[col].apply(
+                        lambda x: f"${x:,.2f}" if pd.notnull(x) else ""
+                    )
+                elif "pct" in col.lower():
+                    display_summary[col] = display_summary[col].apply(
+                        lambda x: f"{x*100:.1f}%" if pd.notnull(x) else ""
+                    )
+                else:
+                    display_summary[col] = display_summary[col].apply(
+                        lambda x: f"{x:,.0f}" if pd.notnull(x) else ""
+                    )
+        
+        st.dataframe(display_summary, use_container_width=True, hide_index=True)
+    
+    if not ml_summary_df.empty and use_pycaret:
+        st.markdown("**ML-Based Projections (PyCaret):**")
+        display_ml = ml_summary_df.copy()
+        
+        if "ml_projected_final_qty" in display_ml.columns:
+            display_ml["ml_projected_final_qty"] = display_ml["ml_projected_final_qty"].apply(
+                lambda x: f"{x:,.0f}" if pd.notnull(x) else ""
+            )
+        
+        st.dataframe(display_ml, use_container_width=True, hide_index=True)
+        
+        # Show comparison if both methods available
+        if not summary_df.empty:
+            st.markdown("**Comparison:**")
+            comparison = summary_df[["city", "projected_final_qty"]].merge(
+                ml_summary_df[["city", "ml_projected_final_qty"]],
+                on="city",
+                how="outer"
+            )
+            comparison["difference"] = comparison["ml_projected_final_qty"] - comparison["projected_final_qty"]
+            comparison["difference_pct"] = (comparison["difference"] / comparison["projected_final_qty"]) * 100
+            
+            for col in ["projected_final_qty", "ml_projected_final_qty", "difference"]:
+                if col in comparison.columns:
+                    comparison[col] = comparison[col].apply(
+                        lambda x: f"{x:,.0f}" if pd.notnull(x) else ""
+                    )
+            
+            if "difference_pct" in comparison.columns:
+                comparison["difference_pct"] = comparison["difference_pct"].apply(
+                    lambda x: f"{x:+.1f}%" if pd.notnull(x) else ""
+                )
+            
+            st.dataframe(comparison, use_container_width=True, hide_index=True)
 
 # ----------------------------
 # Data table + download (this season by day)

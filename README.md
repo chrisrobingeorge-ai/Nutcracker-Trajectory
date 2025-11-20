@@ -7,6 +7,7 @@ A Streamlit app that compares this year's Nutcracker sales trajectory with prior
 - Auto-detects columns (season/year, order_date, performance_date, qty, city, capacity, performance_id)
 - Normalizes per-show (if no capacity) or by capacity (if provided)
 - Reference curve: mean + min/max cumulative share by day from opening
+- **ML-based projections using PyCaret** (optional) - Train AutoML regression models on historical data for alternative projections
 - Calgary / Edmonton split or Combined
 - Exports projection-by-day and summary CSVs
 
@@ -28,5 +29,28 @@ Two CSVs:
 - `revenue` — enables a revenue trajectory view
 
 > If you have per-transaction data, the app will aggregate daily.
+
+## ML-based Projections (PyCaret)
+
+The app now includes optional machine learning-based projections using **PyCaret**, an AutoML library that automatically trains and selects the best regression model.
+
+### How it works:
+1. **Enable in UI**: Check "Enable ML-based projections (PyCaret)" in the sidebar
+2. **Automatic training**: The app trains multiple regression models on historical data and selects the best performer
+3. **Features used**: Days to close, cumulative tickets, per-show metrics, seasonality (day of week, month)
+4. **Comparison view**: See both curve-based and ML-based projections side-by-side
+
+### Benefits:
+- **Complementary approach**: ML models can capture non-linear patterns that simple averaging might miss
+- **Automatic feature engineering**: PyCaret handles normalization and preprocessing
+- **Multiple models**: Compares various algorithms (Linear, Ridge, Random Forest, XGBoost, etc.) and picks the best
+- **No configuration needed**: Works out-of-the-box with default settings
+
+### Requirements:
+```bash
+pip install pycaret>=3.3.2
+```
+
+The feature gracefully degrades if PyCaret is not installed, allowing the app to run with only the traditional curve-based projections.
 
 ## Repo structure
