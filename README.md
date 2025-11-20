@@ -30,12 +30,14 @@ Two CSVs:
 
 > If you have per-transaction data, the app will aggregate daily.
 
-## ML-based Projections (PyCaret)
+## ML-based Projections (PyCaret) - Optional
 
-The app now includes optional machine learning-based projections using **PyCaret**, an AutoML library that automatically trains and selects the best regression model.
+The app includes **optional** machine learning-based projections using **PyCaret**, an AutoML library that automatically trains and selects the best regression model.
+
+> **Note**: PyCaret is completely optional. The app works perfectly without it, using traditional curve-based projections.
 
 ### How it works:
-1. **Enable in UI**: Check "Enable ML-based projections (PyCaret)" in the sidebar
+1. **Enable in UI**: Check "Enable ML-based projections (PyCaret)" in the sidebar (only appears if PyCaret is installed)
 2. **Automatic training**: The app trains multiple regression models on historical data and selects the best performer
 3. **Features used**: Days to close, cumulative tickets, per-show metrics, seasonality (day of week, month)
 4. **Comparison view**: See both curve-based and ML-based projections side-by-side
@@ -46,13 +48,22 @@ The app now includes optional machine learning-based projections using **PyCaret
 - **Multiple models**: Compares various algorithms (Linear, Ridge, Random Forest, XGBoost, etc.) and picks the best
 - **No configuration needed**: Works out-of-the-box with default settings
 
-### Requirements:
-- **Python version**: 3.9, 3.10, or 3.11 (PyCaret does not support Python 3.12 yet)
-- **Installation**:
+### Installation (Optional):
+PyCaret is **not included** in the default `requirements.txt` to ensure broad compatibility.
+
+**Requirements:**
+- **Python version**: 3.9, 3.10, or 3.11 (PyCaret does not support Python 3.12+ yet)
+
+**Install PyCaret separately:**
+```bash
+pip install -r requirements-pycaret.txt
+```
+
+Or directly:
 ```bash
 pip install pycaret>=3.3.2
 ```
 
-The feature gracefully degrades if PyCaret is not installed or if Python version is incompatible, allowing the app to run with only the traditional curve-based projections.
+The app gracefully handles missing PyCaret and will show a notification in the sidebar when it's not available.
 
 ## Repo structure

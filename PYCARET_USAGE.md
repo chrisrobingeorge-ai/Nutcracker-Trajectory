@@ -10,24 +10,40 @@ The Nutcracker Trajectory Tracker now supports **two projection methods**:
 ## Prerequisites
 
 ### Python Version
-PyCaret requires **Python 3.9, 3.10, or 3.11**. It does not support Python 3.12 yet.
+PyCaret requires **Python 3.9, 3.10, or 3.11**. It does not support Python 3.12+ yet.
 
 Check your Python version:
 ```bash
 python --version
 ```
 
+**Important**: The app works without PyCaret installed. PyCaret is completely optional for ML-based projections.
+
 ### Installation
 
-Install PyCaret:
+The app's core dependencies are in `requirements.txt` and work with Python 3.11+. PyCaret is **optional**.
+
+#### Core Dependencies (Required)
+```bash
+pip install -r requirements.txt
+```
+
+#### PyCaret (Optional - for ML features)
+```bash
+pip install -r requirements-pycaret.txt
+```
+
+Or install PyCaret directly:
 ```bash
 pip install pycaret>=3.3.2
 ```
 
-Or install all requirements including PyCaret:
-```bash
-pip install -r requirements.txt
-```
+### Streamlit Cloud Deployment
+
+The app is configured to run on Streamlit Cloud with Python 3.11 (via `runtime.txt`). 
+
+- **Without PyCaret**: The app deploys and runs normally with curve-based projections
+- **With PyCaret**: Install optional dependencies after deployment if needed
 
 ## How to Use
 
