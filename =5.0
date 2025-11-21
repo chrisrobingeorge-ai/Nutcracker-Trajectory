@@ -1,0 +1,84 @@
+Defaulting to user installation because normal site-packages is not writeable
+Collecting streamlit
+  Using cached streamlit-1.51.0-py3-none-any.whl.metadata (9.5 kB)
+Collecting pandas
+  Downloading pandas-2.3.3-cp312-cp312-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl.metadata (91 kB)
+     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 91.2/91.2 kB 24.2 MB/s eta 0:00:00
+Collecting numpy
+  Downloading numpy-2.3.5-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl.metadata (62 kB)
+     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 62.1/62.1 kB 17.3 MB/s eta 0:00:00
+Collecting altair
+  Using cached altair-6.0.0-py3-none-any.whl.metadata (11 kB)
+  Using cached altair-5.5.0-py3-none-any.whl.metadata (11 kB)
+Requirement already satisfied: blinker<2,>=1.5.0 in /usr/lib/python3/dist-packages (from streamlit) (1.7.0)
+Collecting cachetools<7,>=4.0 (from streamlit)
+  Using cached cachetools-6.2.2-py3-none-any.whl.metadata (5.6 kB)
+Requirement already satisfied: click<9,>=7.0 in /usr/lib/python3/dist-packages (from streamlit) (8.1.6)
+Requirement already satisfied: packaging<26,>=20 in /usr/lib/python3/dist-packages (from streamlit) (24.0)
+Collecting pillow<13,>=7.1.0 (from streamlit)
+  Using cached pillow-12.0.0-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl.metadata (8.8 kB)
+Collecting protobuf<7,>=3.20 (from streamlit)
+  Using cached protobuf-6.33.1-cp39-abi3-manylinux2014_x86_64.whl.metadata (593 bytes)
+Collecting pyarrow<22,>=7.0 (from streamlit)
+  Using cached pyarrow-21.0.0-cp312-cp312-manylinux_2_28_x86_64.whl.metadata (3.3 kB)
+Requirement already satisfied: requests<3,>=2.27 in /usr/lib/python3/dist-packages (from streamlit) (2.31.0)
+Collecting tenacity<10,>=8.1.0 (from streamlit)
+  Using cached tenacity-9.1.2-py3-none-any.whl.metadata (1.2 kB)
+Collecting toml<2,>=0.10.1 (from streamlit)
+  Using cached toml-0.10.2-py2.py3-none-any.whl.metadata (7.1 kB)
+Requirement already satisfied: typing-extensions<5,>=4.4.0 in /usr/lib/python3/dist-packages (from streamlit) (4.10.0)
+Collecting watchdog<7,>=2.1.5 (from streamlit)
+  Using cached watchdog-6.0.0-py3-none-manylinux2014_x86_64.whl.metadata (44 kB)
+Collecting gitpython!=3.1.19,<4,>=3.0.7 (from streamlit)
+  Using cached gitpython-3.1.45-py3-none-any.whl.metadata (13 kB)
+Collecting pydeck<1,>=0.8.0b4 (from streamlit)
+  Using cached pydeck-0.9.1-py2.py3-none-any.whl.metadata (4.1 kB)
+Collecting tornado!=6.5.0,<7,>=6.0.3 (from streamlit)
+  Using cached tornado-6.5.2-cp39-abi3-manylinux_2_5_x86_64.manylinux1_x86_64.manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (2.8 kB)
+Requirement already satisfied: python-dateutil>=2.8.2 in /usr/lib/python3/dist-packages (from pandas) (2.8.2)
+Requirement already satisfied: pytz>=2020.1 in /usr/lib/python3/dist-packages (from pandas) (2024.1)
+Collecting tzdata>=2022.7 (from pandas)
+  Using cached tzdata-2025.2-py2.py3-none-any.whl.metadata (1.4 kB)
+Requirement already satisfied: jinja2 in /usr/lib/python3/dist-packages (from altair) (3.1.2)
+Requirement already satisfied: jsonschema>=3.0 in /usr/lib/python3/dist-packages (from altair) (4.10.3)
+Collecting narwhals>=1.14.2 (from altair)
+  Using cached narwhals-2.12.0-py3-none-any.whl.metadata (11 kB)
+Collecting gitdb<5,>=4.0.1 (from gitpython!=3.1.19,<4,>=3.0.7->streamlit)
+  Using cached gitdb-4.0.12-py3-none-any.whl.metadata (1.2 kB)
+Requirement already satisfied: attrs>=17.4.0 in /usr/lib/python3/dist-packages (from jsonschema>=3.0->altair) (23.2.0)
+Requirement already satisfied: pyrsistent!=0.17.0,!=0.17.1,!=0.17.2,>=0.14.0 in /usr/lib/python3/dist-packages (from jsonschema>=3.0->altair) (0.20.0)
+Collecting smmap<6,>=3.0.1 (from gitdb<5,>=4.0.1->gitpython!=3.1.19,<4,>=3.0.7->streamlit)
+  Downloading smmap-5.0.2-py3-none-any.whl.metadata (4.3 kB)
+Downloading streamlit-1.51.0-py3-none-any.whl (10.2 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 10.2/10.2 MB 139.9 MB/s eta 0:00:00
+Downloading pandas-2.3.3-cp312-cp312-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl (12.4 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 12.4/12.4 MB 153.3 MB/s eta 0:00:00
+Downloading numpy-2.3.5-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl (16.6 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 16.6/16.6 MB 149.9 MB/s eta 0:00:00
+Downloading altair-5.5.0-py3-none-any.whl (731 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 731.2/731.2 kB 102.0 MB/s eta 0:00:00
+Downloading cachetools-6.2.2-py3-none-any.whl (11 kB)
+Downloading gitpython-3.1.45-py3-none-any.whl (208 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 208.2/208.2 kB 55.9 MB/s eta 0:00:00
+Downloading narwhals-2.12.0-py3-none-any.whl (425 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 425.0/425.0 kB 91.7 MB/s eta 0:00:00
+Downloading pillow-12.0.0-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl (7.0 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 7.0/7.0 MB 137.9 MB/s eta 0:00:00
+Downloading protobuf-6.33.1-cp39-abi3-manylinux2014_x86_64.whl (323 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 323.2/323.2 kB 74.0 MB/s eta 0:00:00
+Downloading pyarrow-21.0.0-cp312-cp312-manylinux_2_28_x86_64.whl (42.8 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 42.8/42.8 MB 109.7 MB/s eta 0:00:00
+Downloading pydeck-0.9.1-py2.py3-none-any.whl (6.9 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 6.9/6.9 MB 146.5 MB/s eta 0:00:00
+Downloading tenacity-9.1.2-py3-none-any.whl (28 kB)
+Downloading toml-0.10.2-py2.py3-none-any.whl (16 kB)
+Downloading tornado-6.5.2-cp39-abi3-manylinux_2_5_x86_64.manylinux1_x86_64.manylinux_2_17_x86_64.manylinux2014_x86_64.whl (443 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 443.9/443.9 kB 95.6 MB/s eta 0:00:00
+Downloading tzdata-2025.2-py2.py3-none-any.whl (347 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 347.8/347.8 kB 80.9 MB/s eta 0:00:00
+Downloading watchdog-6.0.0-py3-none-manylinux2014_x86_64.whl (79 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 79.1/79.1 kB 18.6 MB/s eta 0:00:00
+Downloading gitdb-4.0.12-py3-none-any.whl (62 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 62.8/62.8 kB 19.6 MB/s eta 0:00:00
+Downloading smmap-5.0.2-py3-none-any.whl (24 kB)
+Would install GitPython-3.1.45 altair-5.5.0 cachetools-6.2.2 gitdb-4.0.12 narwhals-2.12.0 numpy-2.3.5 pandas-2.3.3 pillow-12.0.0 protobuf-6.33.1 pyarrow-21.0.0 pydeck-0.9.1 smmap-5.0.2 streamlit-1.51.0 tenacity-9.1.2 toml-0.10.2 tornado-6.5.2 tzdata-2025.2 watchdog-6.0.0
