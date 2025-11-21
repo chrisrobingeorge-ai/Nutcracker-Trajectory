@@ -3,8 +3,9 @@
 # Reuse these functions in your Streamlit or CLI validation page.
 
 import sys
-from typing import Any
+from typing import Any, Optional, List
 from pathlib import Path
+import pandas as pd
 
 PYCARET_MIN_PYTHON = (3, 9)
 PYCARET_MAX_PYTHON = (3, 12)
@@ -45,12 +46,12 @@ def load_pycaret_model(model_name: str) -> Any:
             f"Could not find '{p}'. Train & save a model using the training script, "
             f"then place the .pkl in the project root or provide the path."
         )
-    return load_model(str(p))
+    return load_model(model_name)
 
-def get_pycaret_predictions(model: Any, features_df, id_cols=None):
+def get_pycaret_predictions(model: Any, features_df: pd.DataFrame, id_cols: Optional[List[str]] = None) -> pd.Series:
     """
     Given a loaded PyCaret model and features DataFrame, return a Series
-    with name 'PyCaret_Prediction' aligned to input rows.
+    with a 'PyCaret_Prediction' name aligned to input rows.
     """
     try:
         from pycaret.regression import predict_model
@@ -62,7 +63,6 @@ def get_pycaret_predictions(model: Any, features_df, id_cols=None):
         data_for_pred = data_for_pred.drop(columns=[c for c in id_cols if c in data_for_pred.columns], errors="ignore")
 
     pred_results = predict_model(model, data=data_for_pred)
-    # PyCaret typically returns predictions in column 'Label'
     if "Label" in pred_results.columns:
         pred_series = pred_results["Label"]
     else:

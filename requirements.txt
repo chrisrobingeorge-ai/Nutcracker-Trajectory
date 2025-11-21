@@ -1,12 +1,13 @@
 streamlit>=1.33
-pandas>=2.0
-numpy>=1.24
-altair>=5.0
-
-# Optional: Model Validation (PyCaret) compatibility pins
 pandas>=2.0,<2.2
 numpy>=1.21,<1.27
-matplotlib>=3.0,<3.8
-scikit-learn>=1.4,<1.5
-xgboost>=2.0.0
-pycaret @ git+https://github.com/pycaret/pycaret.git@master
+altair>=5.0
+
+# Optional: Model Validation (PyCaret) - uncomment to enable
+# Note: PyCaret adds many dependencies. Use a separate venv if needed.
+# Installing from @master gets latest Python compatibility fixes.
+# For production, consider pinning to a specific commit hash for stability.
+# matplotlib>=3.0,<3.8
+# scikit-learn>=1.4,<1.5
+# xgboost>=2.0.0
+# pycaret @ git+https://github.com/pycaret/pycaret.git@master

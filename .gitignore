@@ -41,5 +41,5 @@ logs/
 .DS_Store
 Thumbs.db
 
-# PyCaret models
+# ML Models
 *.pkl
