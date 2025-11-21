@@ -43,3 +43,6 @@ Thumbs.db
 
 # ML Models
 *.pkl
+
+# Python wheels
+*.whl
