@@ -46,7 +46,7 @@ def load_pycaret_model(model_name: str) -> Any:
             f"Could not find '{p}'. Train & save a model using the training script, "
             f"then place the .pkl in the project root or provide the path."
         )
-    return load_model(str(p))
+    return load_model(model_name)
 
 def get_pycaret_predictions(model: Any, features_df: pd.DataFrame, id_cols: Optional[List[str]] = None) -> pd.Series:
     """

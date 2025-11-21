@@ -63,6 +63,7 @@ s = setup(
 )
 
 # 7. Compare models and save best (sorted by MAE)
+# Note: compare_models with n_select=1 returns a single model object
 best_model = compare_models(n_select=1, sort="MAE")
 save_model(best_model, MODEL_NAME)
 print(f"\n✓ Model saved as '{MODEL_NAME}.pkl' in this folder.")
