@@ -4,7 +4,13 @@ A Streamlit app that compares this year's Nutcracker sales trajectory with prior
 
 ## Python Version Requirement
 
-This app requires **Python 3.11** for deployment. The `runtime.txt` file specifies this version to ensure compatibility with Streamlit Cloud and all dependencies including Altair charts. Python 3.11 is also compatible with the optional PyCaret ML features.
+This app requires **Python 3.11.10** for deployment. The `runtime.txt` file specifies this exact version to ensure:
+- Optimal wheel availability for all dependencies (pandas, numpy, streamlit)
+- No compilation from source is needed during deployment
+- Compatibility with Streamlit Cloud and all dependencies including Altair charts
+- Support for optional PyCaret ML features
+
+**Note:** Using a specific Python version (e.g., 3.11.10) instead of a generic version (e.g., 3.11) ensures consistent deployments and avoids build failures.
 
 ## Features
 - Upload historical multi-year CSV + this-year-to-date CSV
@@ -69,5 +75,22 @@ pip install pycaret>=3.3.2
 ```
 
 The app gracefully handles missing PyCaret and will show a notification in the sidebar when it's not available.
+
+## Dependencies
+
+The `requirements.txt` uses carefully chosen version constraints to ensure:
+- **streamlit>=1.33**: Latest features and security fixes
+- **pandas>=2.0**: Modern pandas API, allows latest stable versions
+- **numpy>=1.23,<2.0**: Compatible with streamlit and pandas, with pre-built wheels
+- **altair>=5.0**: Modern declarative visualization
+
+These constraints ensure that pip can resolve dependencies using pre-built wheels, avoiding compilation errors during deployment.
+
+## Deployment Notes
+
+If you encounter "ninja: build stopped" or "metadata-generation-failed" errors during deployment:
+1. Ensure `runtime.txt` specifies an exact Python version (e.g., `python-3.11.10`)
+2. Verify package constraints allow for pre-built wheels
+3. Avoid overly restrictive upper bounds (e.g., use `pandas>=2.0` instead of `pandas>=2.0,<2.2`)
 
 ## Repo structure
