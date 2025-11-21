@@ -3,8 +3,9 @@
 # Reuse these functions in your Streamlit or CLI validation page.
 
 import sys
-from typing import Any
+from typing import Any, Optional, List
 from pathlib import Path
+import pandas as pd
 
 PYCARET_MIN_PYTHON = (3, 9)
 PYCARET_MAX_PYTHON = (3, 12)
@@ -47,7 +48,7 @@ def load_pycaret_model(model_name: str) -> Any:
         )
     return load_model(str(p))
 
-def get_pycaret_predictions(model: Any, features_df, id_cols=None):
+def get_pycaret_predictions(model: Any, features_df: pd.DataFrame, id_cols: Optional[List[str]] = None) -> pd.Series:
     """
     Given a loaded PyCaret model and features DataFrame, return a Series
     with a 'PyCaret_Prediction' name aligned to input rows.

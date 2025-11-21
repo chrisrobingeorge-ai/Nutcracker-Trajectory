@@ -4,7 +4,20 @@
 #
 # Adapt column names below to match Nutcracker-Trajectory's historical data.
 
+import sys
 import pandas as pd
+
+# Check Python version compatibility before importing PyCaret
+PYCARET_MIN_PYTHON = (3, 9)
+PYCARET_MAX_PYTHON = (3, 12)
+
+current_version = sys.version_info[:2]
+if not (PYCARET_MIN_PYTHON <= current_version <= PYCARET_MAX_PYTHON):
+    print(f"Error: PyCaret requires Python {PYCARET_MIN_PYTHON[0]}.{PYCARET_MIN_PYTHON[1]} "
+          f"through {PYCARET_MAX_PYTHON[0]}.{PYCARET_MAX_PYTHON[1]}.")
+    print(f"Your Python version is {sys.version_info.major}.{sys.version_info.minor}.")
+    sys.exit(1)
+
 from pycaret.regression import setup, compare_models, save_model
 
 # ---------- CONFIG ----------
