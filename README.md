@@ -2,6 +2,10 @@
 
 A Streamlit app that compares this year's Nutcracker sales trajectory with prior seasons, normalizing for different numbers of performances (and capacity if available), and projecting a final outcome from historical cumulative share curves.
 
+## Python Version Requirement
+
+This app requires **Python 3.12** for deployment. The `runtime.txt` file specifies this version to ensure compatibility with both Streamlit Cloud and the optional PyCaret ML features.
+
 ## Features
 - Upload historical multi-year CSV + this-year-to-date CSV
 - Auto-detects columns (season/year, order_date, performance_date, qty, city, capacity, performance_id)
@@ -52,7 +56,7 @@ The app includes **optional** machine learning-based projections using **PyCaret
 PyCaret is **not included** in the default `requirements.txt` to ensure broad compatibility.
 
 **Requirements:**
-- **Python version**: 3.9, 3.10, or 3.11 (PyCaret does not support Python 3.12+ yet)
+- **Python version**: 3.9, 3.10, 3.11, or 3.12 (PyCaret supports up to Python 3.12; not compatible with Python 3.13+)
 
 **Install PyCaret separately:**
 ```bash
