@@ -678,7 +678,7 @@ with st.sidebar:
         )
     else:
         use_pycaret = False
-        if 'PYCARET_ERROR' in globals() and 'Python version' in PYCARET_ERROR:
+        if 'PYCARET_ERROR' in globals() and 'Current version' in PYCARET_ERROR:
             st.warning("⚠️ PyCaret requires Python 3.9-3.11. Current version not supported.")
         else:
             st.info("PyCaret not available. Install with: pip install pycaret")
