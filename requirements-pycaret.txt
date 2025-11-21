@@ -1,4 +1,4 @@
 # Optional: ML-based projections with PyCaret
 # Install separately if you want ML features
-# Requires Python 3.9, 3.10, or 3.11 (not 3.12+)
+# Compatible with Python 3.9, 3.10, and 3.11 (this app uses 3.11)
 pycaret>=3.3.2
