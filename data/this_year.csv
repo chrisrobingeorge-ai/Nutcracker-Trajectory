@@ -915,3 +915,11 @@ Date,City,Source,Tickets Sold,Revenue,Season,Num_Shows,Capacity
 2025-11-30,Calgary,Ticketmaster,330,39005.21,2025,14,30800
 2025-11-30,Edmonton,Archtics,4,636.76,2025,7,15400
 2025-11-30,Edmonton,Ticketmaster,135,15390.49,2025,7,15400
+2025-12-01,Calgary,Archtics,16,"$1,666.84 ",2025,14,30800
+2025-12-01,Calgary,Ticketmaster,252,"$30,418.55 ",2025,14,30800
+2025-12-01,Edmonton,Archtics,4,$0.00 ,2025,7,15400
+2025-12-01,Edmonton,Ticketmaster,173,"$20,373.31 ",2025,7,15400
+2025-12-02,Calgary,Archtics,24,"$2,971.82 ",2025,14,30800
+2025-12-02,Calgary,Ticketmaster,208,"$21,972.63 ",2025,14,30800
+2025-12-02,Edmonton,Archtics,19,"$1,357.28 ",2025,7,15400
+2025-12-02,Edmonton,Ticketmaster,113,"$14,948.19 ",2025,7,15400
