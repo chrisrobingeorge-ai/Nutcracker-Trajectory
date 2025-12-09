@@ -629,7 +629,7 @@ def project_this_year(
         )
 
         # Determine if this city's shows have closed (based on today's date)
-        closing_date = final_row["closing_date"] if (final_row is not None and "closing_date" in final_row) else pd.NaT
+        closing_date = final_row.get("closing_date", pd.NaT) if final_row is not None else pd.NaT
         today = pd.Timestamp.now().normalize()
         is_closed = _is_city_closed(city, closing_date, today)
         
@@ -642,7 +642,7 @@ def project_this_year(
             projected_final_revenue=proj_final_rev,
             current_avg_price=current_avg_price,
             projected_avg_price=projected_avg_price,
-            num_shows=(final_row["num_shows"] if (final_row is not None and "num_shows" in final_row) else np.nan),
+            num_shows=final_row.get("num_shows", np.nan) if final_row is not None else np.nan,
             total_capacity=cap_total,
             shows_status="Closed" if is_closed else "Active",
             closing_date=closing_date,
@@ -1095,10 +1095,10 @@ if not summary_df.empty or not ml_summary_df.empty:
         st.markdown("**Historical Curve-Based Projections:**")
         display_summary = summary_df.copy()
         
-        # Format closing_date for display
+        # Format closing_date for display (x is already a Timestamp object)
         if "closing_date" in display_summary.columns:
             display_summary["closing_date"] = display_summary["closing_date"].apply(
-                lambda x: pd.to_datetime(x).strftime("%Y-%m-%d") if pd.notnull(x) and x != "" else ""
+                lambda x: x.strftime("%Y-%m-%d") if pd.notnull(x) else ""
             )
         
         # Format numeric columns
