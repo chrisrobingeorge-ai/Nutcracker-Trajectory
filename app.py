@@ -235,6 +235,16 @@ def _city_closing_day(city: str) -> int:
         return 7
     return 24
 
+def _is_city_closed(city: str, closing_date: pd.Timestamp, as_of_date: pd.Timestamp) -> bool:
+    """
+    Check if a city's shows have already closed as of a given date.
+    
+    Returns True if as_of_date is after the closing_date for the city.
+    """
+    if pd.isna(closing_date) or pd.isna(as_of_date):
+        return False
+    return as_of_date > closing_date
+
 def compute_calendar_refs(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
     # Build meta per (season,city) with city-specific closing day
     meta = (
@@ -611,6 +621,11 @@ def project_this_year(
             else np.nan
         )
 
+        # Determine if this city's shows have closed
+        closing_date = final_row["closing_date"] if (final_row is not None and "closing_date" in final_row) else pd.NaT
+        last_sale_date = g["sale_date"].max()
+        is_closed = _is_city_closed(city, closing_date, last_sale_date)
+        
         summaries.append(dict(
             season=this_season,
             city=city,
@@ -622,6 +637,8 @@ def project_this_year(
             projected_avg_price=projected_avg_price,
             num_shows=(final_row["num_shows"] if (final_row is not None and "num_shows" in final_row) else np.nan),
             total_capacity=cap_total,
+            shows_status="Closed" if is_closed else "Active",
+            closing_date=closing_date,
         ))
 
     summary_df = pd.DataFrame(summaries)
@@ -886,6 +903,21 @@ if "mean_share" in plot_proj.columns:
     plot_proj.loc[too_early, ["proj_cum_qty", "proj_min_cum_qty", "proj_max_cum_qty"]] = np.nan
 
 # ----------------------------
+# Show active/closed cities info
+# ----------------------------
+if not summary_df.empty and "shows_status" in summary_df.columns:
+    active_cities = summary_df[summary_df["shows_status"] == "Active"]["city"].tolist()
+    closed_cities = summary_df[summary_df["shows_status"] == "Closed"]["city"].tolist()
+    
+    if closed_cities:
+        st.info(
+            f"**Show Status:** "
+            f"{'✅ Active: ' + ', '.join(active_cities) if active_cities else ''}"
+            f"{' | ' if active_cities and closed_cities else ''}"
+            f"{'🔒 Closed: ' + ', '.join(closed_cities) if closed_cities else ''}"
+        )
+
+# ----------------------------
 # MAIN PAGE (chart + data table)
 # ----------------------------
 st.subheader("Actual vs projected cumulative tickets (historical vs this year)")
@@ -1053,6 +1085,12 @@ if not summary_df.empty or not ml_summary_df.empty:
     if not summary_df.empty:
         st.markdown("**Historical Curve-Based Projections:**")
         display_summary = summary_df.copy()
+        
+        # Format closing_date for display
+        if "closing_date" in display_summary.columns:
+            display_summary["closing_date"] = display_summary["closing_date"].apply(
+                lambda x: x.strftime("%Y-%m-%d") if pd.notnull(x) else ""
+            )
         
         # Format numeric columns
         numeric_cols = ["current_cum_qty", "projected_final_qty", "projected_pct_capacity", 
@@ -1277,9 +1315,18 @@ Where available, we also show a band using the min/max shares from reference sea
 If capacity per performance is provided, we compute capacity-based metrics and show **% of capacity**. 
 If not, we normalize **per show** so seasons with more shows are comparable to seasons with fewer shows.
 
+**Handling capacity changes after shows close**  
+The app accounts for different closing dates by city (Edmonton: Dec 7, Calgary: Dec 24). 
+Once a city's shows close:
+- The "Shows Status" column indicates "Closed" for that city
+- Capacity and projections are calculated per-city and reflect only active shows
+- You can continue uploading sales data for remaining cities (e.g., just Calgary if Edmonton has closed)
+- Each city's capacity is tracked independently based on the `Num_Shows` and `Capacity` columns in your CSV
+
 **`data/` usage**  
 - Put your files in `data/` at repo root.
 - Use fixed names (`historical.csv`, `this_year.csv`) or date-stamped patterns (`historical_2022-2024.csv`, `this_year_2025_2025-11-02.csv`).
 - The sidebar lets you pick which files to use when multiple matches exist.
+- The `Num_Shows` and `Capacity` columns should reflect the total shows/capacity for each city's run.
 """
 )
