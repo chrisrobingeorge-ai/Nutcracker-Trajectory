@@ -239,7 +239,14 @@ def _is_city_closed(city: str, closing_date: pd.Timestamp, as_of_date: pd.Timest
     """
     Check if a city's shows have already closed as of a given date.
     
-    Returns True if as_of_date is after the closing_date for the city.
+    Args:
+        city: Name of the city (for reference, not used in logic)
+        closing_date: The date when this city's shows close
+        as_of_date: The reference date to check against (typically today)
+    
+    Returns:
+        True if as_of_date is after the closing_date (shows are closed).
+        False if shows are still active, or if either date is NaT/null.
     """
     if pd.isna(closing_date) or pd.isna(as_of_date):
         return False
@@ -621,10 +628,10 @@ def project_this_year(
             else np.nan
         )
 
-        # Determine if this city's shows have closed
+        # Determine if this city's shows have closed (based on today's date)
         closing_date = final_row["closing_date"] if (final_row is not None and "closing_date" in final_row) else pd.NaT
-        last_sale_date = g["sale_date"].max()
-        is_closed = _is_city_closed(city, closing_date, last_sale_date)
+        today = pd.Timestamp.now().normalize()
+        is_closed = _is_city_closed(city, closing_date, today)
         
         summaries.append(dict(
             season=this_season,
@@ -910,12 +917,14 @@ if not summary_df.empty and "shows_status" in summary_df.columns:
     closed_cities = summary_df[summary_df["shows_status"] == "Closed"]["city"].tolist()
     
     if closed_cities:
-        st.info(
-            f"**Show Status:** "
-            f"{'✅ Active: ' + ', '.join(active_cities) if active_cities else ''}"
-            f"{' | ' if active_cities and closed_cities else ''}"
-            f"{'🔒 Closed: ' + ', '.join(closed_cities) if closed_cities else ''}"
-        )
+        status_parts = []
+        if active_cities:
+            status_parts.append(f"✅ Active: {', '.join(active_cities)}")
+        if closed_cities:
+            status_parts.append(f"🔒 Closed: {', '.join(closed_cities)}")
+        
+        status_message = f"**Show Status:** {' | '.join(status_parts)}"
+        st.info(status_message)
 
 # ----------------------------
 # MAIN PAGE (chart + data table)

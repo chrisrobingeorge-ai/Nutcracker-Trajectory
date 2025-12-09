@@ -17,6 +17,14 @@ The app tracks which cities have active shows and displays this information in t
 
 ## Handling Capacity When Shows Close
 
+### How Show Status is Determined
+
+The app compares **today's date** with each city's closing date:
+- If today is **before or on** the closing date: Status = "Active"
+- If today is **after** the closing date: Status = "Closed"
+
+This means the status updates automatically based on the current date - no manual changes needed!
+
 ### Scenario: Edmonton Shows Have Closed
 
 Once Edmonton shows close (after December 7), you have several options:
@@ -76,10 +84,13 @@ The app tracks capacity independently for each city:
 **A: That's fine.** Upload just the city with sales data. The app will project only for cities present in your data.
 
 ### Q: How does the app know when shows close?
-**A: City-specific closing dates are built into the app:**
-- Edmonton: December 7 (hardcoded in `_city_closing_day()` function)
-- Calgary: December 24 (hardcoded in `_city_closing_day()` function)
-- The app uses the `Season` column to determine the year
+**A: The app calculates closing dates using two pieces of information:**
+1. **City-specific closing day** (hardcoded in `_city_closing_day()` function):
+   - Edmonton: December 7
+   - Calgary: December 24
+2. **Season year** from your `Season` column (e.g., "2025" → December 7, 2025)
+
+The app then compares today's date with each city's closing date to determine if shows are "Active" or "Closed".
 
 ### Q: Can I change the closing dates?
 **A: Yes, but it requires code changes.** Edit the `_city_closing_day()` function in `app.py` to modify closing dates for specific cities.
