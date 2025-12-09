@@ -916,7 +916,7 @@ if not summary_df.empty and "shows_status" in summary_df.columns:
     active_cities = summary_df[summary_df["shows_status"] == "Active"]["city"].tolist()
     closed_cities = summary_df[summary_df["shows_status"] == "Closed"]["city"].tolist()
     
-    if closed_cities:
+    if active_cities or closed_cities:
         status_parts = []
         if active_cities:
             status_parts.append(f"✅ Active: {', '.join(active_cities)}")
@@ -1098,7 +1098,7 @@ if not summary_df.empty or not ml_summary_df.empty:
         # Format closing_date for display
         if "closing_date" in display_summary.columns:
             display_summary["closing_date"] = display_summary["closing_date"].apply(
-                lambda x: x.strftime("%Y-%m-%d") if pd.notnull(x) else ""
+                lambda x: pd.to_datetime(x).strftime("%Y-%m-%d") if pd.notnull(x) and x != "" else ""
             )
         
         # Format numeric columns
