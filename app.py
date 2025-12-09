@@ -1095,11 +1095,9 @@ if not summary_df.empty or not ml_summary_df.empty:
         st.markdown("**Historical Curve-Based Projections:**")
         display_summary = summary_df.copy()
         
-        # Format closing_date for display (x is already a Timestamp object)
+        # Format closing_date for display using pandas dt accessor for efficiency
         if "closing_date" in display_summary.columns:
-            display_summary["closing_date"] = display_summary["closing_date"].apply(
-                lambda x: x.strftime("%Y-%m-%d") if pd.notnull(x) else ""
-            )
+            display_summary["closing_date"] = display_summary["closing_date"].dt.strftime("%Y-%m-%d").fillna("")
         
         # Format numeric columns
         numeric_cols = ["current_cum_qty", "projected_final_qty", "projected_pct_capacity", 
