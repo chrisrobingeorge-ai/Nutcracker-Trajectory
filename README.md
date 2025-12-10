@@ -19,6 +19,7 @@ This app requires **Python 3.11.10** for deployment. The `runtime.txt` file spec
 - Reference curve: mean + min/max cumulative share by day from opening
 - **ML-based projections using PyCaret** (optional) - Train AutoML regression models on historical data for alternative projections
 - Calgary / Edmonton split or Combined
+- **Automatic capacity tracking** - Accounts for shows closing at different times (see [CAPACITY_TRACKING.md](CAPACITY_TRACKING.md))
 - Exports projection-by-day and summary CSVs
 
 ## Data format
