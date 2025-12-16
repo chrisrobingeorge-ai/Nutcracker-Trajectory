@@ -1,4 +1,3 @@
-
 Date,City,Source,Tickets Sold,Revenue,Season,Num_Shows,Capacity
 2025-04-17,Calgary,Archtics,2,269,2025,14,30800
 2025-04-17,Calgary,Ticketmaster,0,0,2025,14,30800
@@ -916,63 +915,63 @@ Date,City,Source,Tickets Sold,Revenue,Season,Num_Shows,Capacity
 2025-11-30,Calgary,Ticketmaster,330,39005.21,2025,14,30800
 2025-11-30,Edmonton,Archtics,4,636.76,2025,7,15400
 2025-11-30,Edmonton,Ticketmaster,135,15390.49,2025,7,15400
-2025-12-01,Calgary,Archtics,16,"$1,666.84 ",2025,14,30800
-2025-12-01,Calgary,Ticketmaster,252,"$30,418.55 ",2025,14,30800
-2025-12-01,Edmonton,Archtics,4,$0.00 ,2025,7,15400
-2025-12-01,Edmonton,Ticketmaster,173,"$20,373.31 ",2025,7,15400
-2025-12-02,Calgary,Archtics,24,"$2,971.82 ",2025,14,30800
-2025-12-02,Calgary,Ticketmaster,208,"$21,972.63 ",2025,14,30800
-2025-12-02,Edmonton,Archtics,19,"$1,357.28 ",2025,7,15400
-2025-12-02,Edmonton,Ticketmaster,113,"$14,948.19 ",2025,7,15400
-2025-12-03,Calgary,Archtics,12,$981.34 ,2025,14,30800
-2025-12-03,Calgary,Ticketmaster,247,"$27,903.47 ",2025,14,30800
-2025-12-03,Edmonton,Archtics,18,"$1,880.04 ",2025,7,15400
-2025-12-03,Edmonton,Ticketmaster,152,"$16,077.79 ",2025,7,15400
-2025-12-04,Calgary,Archtics,117,"$6,760.06 ",2025,14,30800
-2025-12-04,Calgary,Ticketmaster,188,"$22,295.91 ",2025,14,30800
-2025-12-04,Edmonton,Archtics,41,"$4,065.96 ",2025,6,13200
-2025-12-04,Edmonton,Ticketmaster,145,"$14,235.69 ",2025,6,13200
-2025-12-05,Calgary,Archtics,45,"$2,925.69 ",2025,14,30800
-2025-12-05,Calgary,Ticketmaster,182,"$17,826.79 ",2025,14,30800
-2025-12-05,Edmonton,Archtics,21,"$1,804.34 ",2025,5,11000
-2025-12-05,Edmonton,Ticketmaster,135,"$14,902.40 ",2025,5,11000
-2025-12-06,Calgary,Archtics,27,$962.84 ,2025,14,30800
-2025-12-06,Calgary,Ticketmaster,284,"$33,244.99 ",2025,14,30800
-2025-12-06,Edmonton,Archtics,5,$343.42 ,2025,4,8800
-2025-12-06,Edmonton,Ticketmaster,104,"$12,198.82 ",2025,4,8800
-2025-12-07,Calgary,Archtics,7,$68.71 ,2025,14,30800
-2025-12-07,Calgary,Ticketmaster,257,"$29,626.34 ",2025,14,30800
-2025-12-07,Edmonton,Archtics,4,$500.50 ,2025,2,4400
-2025-12-07,Edmonton,Ticketmaster,67,"$7,064.13 ",2025,2,4400
-2025-12-08,Calgary,Archtics,29,"$2,077.84 ",2025,14,30800
-2025-12-08,Calgary,Ticketmaster,261,"$28,993.48 ",2025,14,30800
-2025-12-08,Edmonton,Archtics,-1,($119.49),2025,0,0
-2025-12-08,Edmonton,Ticketmaster,0,$0.00 ,2025,0,0
-2025-12-09,Calgary,Archtics,18,"$1,559.21 ",2025,14,30800
-2025-12-09,Calgary,Ticketmaster,273,"$30,976.82 ",2025,14,30800
-2025-12-09,Edmonton,Archtics,0,$0.00 ,2025,0,0
-2025-12-09,Edmonton,Ticketmaster,0,$0.00 ,2025,0,0
-2025-12-10,Calgary,Archtics,102,"$9,683.56 ",2025,14,30800
-2025-12-10,Calgary,Ticketmaster,253,"$30,452.41 ",2025,14,30800
-2025-12-10,Edmonton,Archtics,0,$0.00 ,2025,0,0
-2025-12-10,Edmonton,Ticketmaster,0,$0.00 ,2025,0,0
-2025-12-11,Calgary,Archtics,35,"$1,297.72 ",2025,14,30800
-2025-12-11,Calgary,Ticketmaster,263,"$27,723.31 ",2025,14,30800
-2025-12-11,Edmonton,Archtics,0,$0.00 ,2025,0,0
-2025-12-11,Edmonton,Ticketmaster,0,$0.00 ,2025,0,0
-2025-12-12,Calgary,Archtics,33,"$2,408.92 ",2025,14,30800
-2025-12-12,Calgary,Ticketmaster,234,"$25,799.24 ",2025,14,30800
-2025-12-12,Edmonton,Archtics,0,$0.00 ,2025,0,0
-2025-12-12,Edmonton,Ticketmaster,0,$0.00 ,2025,0,0
-2025-12-13,Calgary,Archtics,-10,"($1,311.24)",2025,12,26400
-2025-12-13,Calgary,Ticketmaster,292,"$32,211.27 ",2025,12,26400
-2025-12-13,Edmonton,Archtics,0,$0.00 ,2025,0,0
-2025-12-13,Edmonton,Ticketmaster,0,$0.00 ,2025,0,0
-2025-12-14,Calgary,Archtics,15,"$1,389.62 ",2025,10,22000
-2025-12-14,Calgary,Ticketmaster,316,"$35,793.80 ",2025,10,22000
-2025-12-14,Edmonton,Archtics,0,$0.00 ,2025,0,0
-2025-12-14,Edmonton,Ticketmaster,0,$0.00 ,2025,0,0
-2025-12-15,Calgary,Archtics,66,"$5,885.38 ",2025,9,19800
-2025-12-15,Calgary,Ticketmaster,221,"$26,137.41 ",2025,9,19800
-2025-12-15,Edmonton,Archtics,0,$0.00 ,2025,0,0
-2025-12-15,Edmonton,Ticketmaster,0,$0.00 ,2025,0,0
+2025-12-01,Calgary,Archtics,16,1666.84,2025,14,30800
+2025-12-01,Calgary,Ticketmaster,252,30418.55,2025,14,30800
+2025-12-01,Edmonton,Archtics,4,0,2025,7,15400
+2025-12-01,Edmonton,Ticketmaster,173,20373.31,2025,7,15400
+2025-12-02,Calgary,Archtics,24,2971.82,2025,14,30800
+2025-12-02,Calgary,Ticketmaster,208,21972.63,2025,14,30800
+2025-12-02,Edmonton,Archtics,19,1357.28,2025,7,15400
+2025-12-02,Edmonton,Ticketmaster,113,14948.19,2025,7,15400
+2025-12-03,Calgary,Archtics,12,981.34,2025,14,30800
+2025-12-03,Calgary,Ticketmaster,247,27903.47,2025,14,30800
+2025-12-03,Edmonton,Archtics,18,1880.04,2025,7,15400
+2025-12-03,Edmonton,Ticketmaster,152,16077.79,2025,7,15400
+2025-12-04,Calgary,Archtics,117,6760.06,2025,14,30800
+2025-12-04,Calgary,Ticketmaster,188,22295.91,2025,14,30800
+2025-12-04,Edmonton,Archtics,41,4065.96,2025,6,13200
+2025-12-04,Edmonton,Ticketmaster,145,14235.69,2025,6,13200
+2025-12-05,Calgary,Archtics,45,2925.69,2025,14,30800
+2025-12-05,Calgary,Ticketmaster,182,17826.79,2025,14,30800
+2025-12-05,Edmonton,Archtics,21,1804.34,2025,5,11000
+2025-12-05,Edmonton,Ticketmaster,135,14902.4,2025,5,11000
+2025-12-06,Calgary,Archtics,27,962.84,2025,14,30800
+2025-12-06,Calgary,Ticketmaster,284,33244.99,2025,14,30800
+2025-12-06,Edmonton,Archtics,5,343.42,2025,4,8800
+2025-12-06,Edmonton,Ticketmaster,104,12198.82,2025,4,8800
+2025-12-07,Calgary,Archtics,7,68.71,2025,14,30800
+2025-12-07,Calgary,Ticketmaster,257,29626.34,2025,14,30800
+2025-12-07,Edmonton,Archtics,4,500.5,2025,2,4400
+2025-12-07,Edmonton,Ticketmaster,67,7064.13,2025,2,4400
+2025-12-08,Calgary,Archtics,29,2077.84,2025,14,30800
+2025-12-08,Calgary,Ticketmaster,261,28993.48,2025,14,30800
+2025-12-08,Edmonton,Archtics,-1,-119.49,2025,0,0
+2025-12-08,Edmonton,Ticketmaster,0,0,2025,0,0
+2025-12-09,Calgary,Archtics,18,1559.21,2025,14,30800
+2025-12-09,Calgary,Ticketmaster,273,30976.82,2025,14,30800
+2025-12-09,Edmonton,Archtics,0,0,2025,0,0
+2025-12-09,Edmonton,Ticketmaster,0,0,2025,0,0
+2025-12-10,Calgary,Archtics,102,9683.56,2025,14,30800
+2025-12-10,Calgary,Ticketmaster,253,30452.41,2025,14,30800
+2025-12-10,Edmonton,Archtics,0,0,2025,0,0
+2025-12-10,Edmonton,Ticketmaster,0,0,2025,0,0
+2025-12-11,Calgary,Archtics,35,1297.72,2025,14,30800
+2025-12-11,Calgary,Ticketmaster,263,27723.31,2025,14,30800
+2025-12-11,Edmonton,Archtics,0,0,2025,0,0
+2025-12-11,Edmonton,Ticketmaster,0,0,2025,0,0
+2025-12-12,Calgary,Archtics,33,2408.92,2025,14,30800
+2025-12-12,Calgary,Ticketmaster,234,25799.24,2025,14,30800
+2025-12-12,Edmonton,Archtics,0,0,2025,0,0
+2025-12-12,Edmonton,Ticketmaster,0,0,2025,0,0
+2025-12-13,Calgary,Archtics,-10,-1311.24,2025,12,26400
+2025-12-13,Calgary,Ticketmaster,292,32211.27,2025,12,26400
+2025-12-13,Edmonton,Archtics,0,0,2025,0,0
+2025-12-13,Edmonton,Ticketmaster,0,0,2025,0,0
+2025-12-14,Calgary,Archtics,15,1389.62,2025,10,22000
+2025-12-14,Calgary,Ticketmaster,316,35793.8,2025,10,22000
+2025-12-14,Edmonton,Archtics,0,0,2025,0,0
+2025-12-14,Edmonton,Ticketmaster,0,0,2025,0,0
+2025-12-15,Calgary,Archtics,66,5885.38,2025,9,19800
+2025-12-15,Calgary,Ticketmaster,221,26137.41,2025,9,19800
+2025-12-15,Edmonton,Archtics,0,0,2025,0,0
+2025-12-15,Edmonton,Ticketmaster,0,0,2025,0,0
